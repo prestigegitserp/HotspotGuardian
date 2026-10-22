@@ -86,7 +86,7 @@ public final class MonitorService extends Service {
         serverExecutor = Executors.newSingleThreadExecutor();
         checkExecutor = Executors.newSingleThreadScheduledExecutor();
         serverExecutor.execute(this::serveLoop);
-        checkExecutor.scheduleWithFixedDelay(this::checkHeartbeats, 10, 10, TimeUnit.SECONDS);
+        checkExecutor.scheduleWithFixedDelay(this::checkHeartbeats, 2, 2, TimeUnit.SECONDS);
         return START_NOT_STICKY;
     }
 
@@ -134,18 +134,22 @@ public final class MonitorService extends Service {
         activeClients = registry.activeCount(now);
         int newAlarms = registry.takeNewAlarms(now);
         if (newAlarms > 0) {
-            status = "هشدار: هیچ پیام تازه‌ای از لپ‌تاپ نرسیده؛ شاید مرورگر خواب باشد.";
-            if (recoveryPolicy.allow(now, registry.totalSeen() > 0,
-                    activeClients == 0, autoRecoverySelected,
-                    RecoveryAccessibilityService.isReady())) {
-                if (RecoveryAccessibilityService.request()) {
-                    status = "تلاش برای بازیابی خودکار؛ ممکن است اینترنت کوتاه قطع شود.";
-                }
-            }
+            status = "هشدار: پیام لپ‌تاپ بیش از ۱۸ ثانیه نرسیده (یا مرورگر خوابیده).";
             getSystemService(NotificationManager.class).notify(ALERT_ID,
-                makeNotification(CHANNEL_ALERTS, "احتمال قطع اتصال هات‌اسپات",
-                    "ارتباط صفحه پایش لپ‌تاپ قطع یا متوقف شده است.", false));
-        } else if (!registry.hasAlarmedClient()) {
+                makeNotification(CHANNEL_ALERTS, "احتمال قطع ارتباط هات‌اسپات",
+                    "پیام پایش بیش از ۱۸ ثانیه نرسیده؛ اتصال را بررسی کن.", false));
+        }
+        // Critical fix: do not gate retries on newAlarms.
+        // New alarms occur only once per disconnect, but the outage may persist.
+        if (registry.hasAlarmedClient() && activeClients == 0 &&
+                recoveryPolicy.allow(now, registry.totalSeen() > 0,
+                    true, autoRecoverySelected, RecoveryAccessibilityService.isReady())) {
+            if (RecoveryAccessibilityService.request()) {
+                status = "تلاش بازیابی شماره " + recoveryPolicy.attempts()
+                        + " از ۳؛ فاصله حداقل ۴۵ ثانیه.";
+            }
+        }
+        if (!registry.hasAlarmedClient()) {
             getSystemService(NotificationManager.class).cancel(ALERT_ID);
         }
     }
@@ -228,7 +232,10 @@ public final class MonitorService extends Service {
         } else if (request.equals("GET /ping HTTP/1.1") ||
                    request.equals("GET /ping HTTP/1.0")) {
             long now = SystemClock.elapsedRealtime();
+            boolean wasOffline = registry.hasAlarmedClient()
+                    && registry.activeCount(now) == 0;
             registry.heartbeat(client.getInetAddress().getHostAddress(), now);
+            if (wasOffline) recoveryPolicy.onHeartbeatRestored();
             activeClients = registry.activeCount(now);
             if (!registry.hasAlarmedClient()) {
                 status = "ارتباط برقرار است؛ دستگاه‌های فعال: " + activeClients;
@@ -266,13 +273,13 @@ public final class MonitorService extends Service {
             + "<style>body{font:16px sans-serif;max-width:640px;margin:50px auto;padding:24px;}"
             + "h1{font-size:24px}p{line-height:1.9}#state{font-weight:bold}</style></head>"
             + "<body><h1>پایش محلی هات‌اسپات</h1>"
-            + "<p>این صفحه را در لپ‌تاپ باز نگه دار. هر ۱۲ ثانیه یک پیام فقط به گوشی ارسال می‌شود.</p>"
-            + "<p>اگر ۹۰ ثانیه پیام نرسد گوشی هشدار می‌دهد. خواب مرورگر نیز باعث هشدار کاذب می‌شود.</p>"
+            + "<p>این صفحه را در لپ‌تاپ باز نگه دار. هر ۳ ثانیه یک پیام فقط به گوشی ارسال می‌شود.</p>"
+            + "<p>اگر ۱۸ ثانیه پیام نرسد گوشی هشدار می‌دهد. خواب مرورگر نیز باعث هشدار کاذب می‌شود.</p>"
             + "<p id='state'>در حال بررسی…</p>"
             + "<script>async function tick(){try{const r=await fetch('/ping',{cache:'no-store'});"
             + "document.getElementById('state').textContent=r.ok?'ارتباط با گوشی برقرار است':'پاسخ نامعتبر';}"
             + "catch(_){document.getElementById('state').textContent='ارتباط قطع شده است';}}"
-            + "tick();setInterval(tick,12000);document.addEventListener('visibilitychange',tick);</script>"
+            + "tick();setInterval(tick,3000);document.addEventListener('visibilitychange',tick);</script>"
             + "</body></html>";
 
     private static void nap() {
