@@ -21,9 +21,17 @@ public final class RecoveryPolicyTest {
         assert r.attempts()==0;
         assert !r.allow(1000+2*RecoveryPolicy.COOLDOWN_MS+1,true,true,true,true);
         assert r.allow(1000+3*RecoveryPolicy.COOLDOWN_MS,true,true,true,true);
+        // Locked or busy UI rejects the command without spending retry budget.
+        r.clear();
+        assert !r.attempt(100, true, true, true, true, () -> false);
+        assert r.attempts() == 0;
+        assert r.attempt(100, true, true, true, true, () -> true);
+        assert r.attempts() == 1;
+        assert !r.attempt(100 + RecoveryPolicy.COOLDOWN_MS - 1,
+                true, true, true, true, () -> true);
         r.clear();
         assert r.attempts()==0;
         assert r.allow(10,true,true,true,true);
-        System.out.println("PASS: fast 45s cooldown, repeat offline retries, 3 attempts per outage, re-arm on actual reconnect");
+        System.out.println("PASS: fast cooldown, retries, deferred/denied operations do not count, real reconnection reset");
     }
 }
