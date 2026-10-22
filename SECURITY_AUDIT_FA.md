@@ -1,16 +1,12 @@
-# Security scope / محدوده امنیت
+# بررسی امنیتی نسخه ۳
 
-این پروژه **فقط پایش محلی** انجام می‌دهد و مجوزهای زیر را دارد:
-INTERNET (صرفاً سرور محلی)، POST_NOTIFICATIONS، FOREGROUND_SERVICE و FOREGROUND_SERVICE_SPECIAL_USE.
+- Manifest فقط POST_NOTIFICATIONS و مجوزهای FOREGROUND_SERVICE / FOREGROUND_SERVICE_SPECIAL_USE برای زمان‌بندی اختیاری را درخواست می‌کند.
+- سرویس Accessibility تنها با تأیید صریح کاربر فعال می‌شود. ذات این مجوز حساس است و از نظر سیستم می‌تواند به محتوای صفحه دسترسی داشته باشد؛ در پیاده‌سازی برنامه فقط در روند بازیابی، درخت UI مربوط به SystemUI را برای کلید Mobile Hotspot بررسی می‌کند.
+- برنامه مجوز INTERNET، دسترسی فایل، موقعیت مکانی، Device Admin یا دسترسی Shell ندارد.
+- کد برنامه هیچ API برای ذخیره لاگ، دستکاری دیتابیس یا حذف اطلاعات ندارد؛ کش/لاگ خود اندروید خارج از کنترل برنامه است.
+- نه قابلیت روت و نه APIهای مخفی تغییر Tethering وجود دارند. رفرش از Quick Settings با اقدام معتبر کاربر انجام می‌شود و با قفل امن گوشی اجرا نمی‌شود.
+- زمان‌بندی به‌صورت پیش‌فرض غیرفعال است. زمان‌بندی تأییدشده کاربر می‌تواند ارتباط سالم را قطع کند؛ امکان توقف مستقیم در اپ و اعلان وجود دارد.
+- **ریسک عملی:** تأیید وضعیت کلید روی One UI ممکن است شکست بخورد؛ هنگام شکست، هیچ کلیک غیرمطمئن انجام نمی‌شود.
+- تست‌های خودکار منطق فاصله‌ها، مرز مجوزها و کد APIهای حساس را بررسی می‌کنند؛ تست با دستگاه فیزیکی A35 انجام نشده است.
 
-- بدون مجوز Storage، Location، VPN، Accessibility، Root، تغییر Wi-Fi یا تنظیمات سیستم
-- بدون API خواندن یا پاک‌کردن فایل، تغییر رجیستری، ذخیره‌سازی لاگ، کش یا تنظیمات
-- بدون Analytics یا اتصال به سرور ابری؛ اتصال باز روی IP لوکال است
-- وضعیت حداکثر ۴ IP در RAM نگهداری می‌شود؛ با توقف سرویس پاک می‌شود
-- پاسخ HTML با Cache-Control: no-store ارائه می‌شود
-- سرویس توسط کاربر شروع و متوقف می‌شود؛ auto-start ندارد
-- No false guarantee: OS-level logs/caches and laptop browser storage are outside app control
-- No false guarantee: Cannot prevent SSID radio loss, detect it reliably without a client, or repair SoftAP
-- Debug builds are signed with debug keystore and intended for personal sideload evaluation
-
-See tests/check_security.py and GitHub Actions for repeatable source audits.
+نسخه قطعی سازگار با سورس فعلی را در [GitHub Actions](https://github.com/prestigegitserp/HotspotGuardian/actions/workflows/build-apk.yml) پیدا کن.
