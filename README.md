@@ -1,25 +1,18 @@
-# Hotspot Guardian Safe
+# Hotspot Guardian Recovery v2 — Galaxy A35
 
-A tiny, read-only, user-started local hotspot connection monitor for Samsung Galaxy A35 and other Android phones. **It cannot force an Android hotspot to remain discoverable, restart SoftAP, or repair an undetectable Wi-Fi radio.**
+**Downloadable and installable APK:** open [GitHub Actions](https://github.com/prestigegitserp/HotspotGuardian/actions/workflows/build-apk.yml), open the latest successful Build, download `HotspotGuardianRecovery-v2-APK` from **Artifacts**, extract and install `app-debug.apk`.
 
-**راهنمای فارسی:** [README_FA.md](README_FA.md) · **بازبینی امنیتی:** [SECURITY_AUDIT_FA.md](SECURITY_AUDIT_FA.md)
+## Two actual interventions, both optional
 
-## Download the installable APK
+1. **CPU Guard**: user-enabled partial WakeLock while monitoring. Can reduce CPU sleep related interruptions; cannot guarantee SoftAP reliability and uses more battery.
+2. **Recovery via Accessibility**: when the phone is **unlocked** and Samsung Quick Settings exposes a Mobile Hotspot tile with readable on/off state, the app attempts a safe off/on sequence. A manual "Recover now" button is included. Auto-recovery must be explicitly enabled; it triggers only after all previously observed laptop heartbeats have been lost for >90s, with a 15-minute cooldown and up to 3 attempts per monitoring session. The temporary disconnection is intentional. Browser sleep can produce false positives, so leave auto-recovery disabled unless you accept that risk.
 
-**[Successful Android APK build — download the artifact](https://github.com/prestigegitserp/HotspotGuardian/actions/runs/38971523409)**
+**No root, ADB, system shell, file deletion, app-created persistent logs, settings writes, screenshots, data harvesting, or cloud services.** The Android **Accessibility permission is sensitive** and not required for monitoring or CPU Guard. The service only examines the Quick Settings tile during recovery, cannot unlock a locked device, and stops without clicking if the tile/state cannot be verified.
 
-Open the run, go to **Artifacts**, download `HotspotGuardianSafe-1.0-debug-APK`, extract it, and install `app-debug.apk` on the phone. This build is signed with a **debug signing key**, intended for personal testing, not Play Store distribution.
+Android does not grant ordinary third-party apps direct, reliable control over Samsung's Wi-Fi tethering state; this workaround is not guaranteed. Do not assume the radio is repaired merely because Quick Settings shows ON. No physical Galaxy A35 test has been performed.
 
-## What this app really does
+**راهنمای کامل فارسی:** [docs/RECOVERY_V2_FA.md](docs/RECOVERY_V2_FA.md) · [Source security checks](tests/check_security.py) · [Legacy v1 guide](README_FA.md)
 
-When you explicitly start monitoring, the phone opens a tiny HTTP listener on its detected local Wi-Fi/SoftAP IP on port 8765. You open its displayed URL on a laptop connected to that hotspot. The laptop browser sends a heartbeat every 12 seconds, and a missing heartbeat for over 90 seconds triggers an Android notification. Browser sleep or laptop disconnection can also produce an alert.
+CI builds with Android SDK 35, JDK 17, Gradle 8.11.1 and AGP 8.9.2, running security, timeout/cooldown unit tests, APK build, and Android lint.
 
-This app does **not** change Android networking, reboot hotspot, write app files, clear caches, or save activity logs. It does not require root, location, storage, VPN, accessibility or device administrator access. Android and the laptop browser can still create their own routine system records, which the app cannot prevent.
-
-The monitoring listener is accessible to other devices on the **same local network** and must be started/stopped by the user. No external cloud endpoints or analytics SDKs are present.
-
-## Reproducible build and checks
-
-GitHub Actions builds with Java 17, Android API 35, Gradle 8.11.1 and AGP 8.9.2. The workflow runs source security checks, Java heartbeat regression tests, the Android Debug build, and Android Lint, then uploads the APK.
-
-The compiled APK passed the CI build and lint checks. **It has not been device-tested on a physical Galaxy A35.**
+**Updating v1:** GitHub debug signing keys are ephemeral; Android may require uninstalling the older debug-signed APK before installing this debug build. This app itself does not delete any data. Android/Chrome OS internals can still create their own routine caches and system records.
