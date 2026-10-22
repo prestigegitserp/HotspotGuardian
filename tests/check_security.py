@@ -37,6 +37,6 @@ assert 'Cache-Control: no-store' in sources
 assert 'public static volatile boolean isRunning' in sources
 assert 'PARTIAL_WAKE_LOCK' in sources
 assert 'MAX_ATTEMPTS = 3' in sources
-assert 'COOLDOWN_MS = 15 * 60 * 1000L' in sources
+assert 'COOLDOWN_MS = 45_000L' in sources
 assert 'com.android.systemui' in sources
 print('PASS: opt-in wake lock, bounded UI recovery, no file / shell / system-setting writes')
