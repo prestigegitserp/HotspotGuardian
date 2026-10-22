@@ -182,7 +182,7 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
     private static int readState(AccessibilityNodeInfo node) {
         // Prefer accessibility checkable state (not unrelated enable/disable).
         if (node.isCheckable()) return node.isChecked() ? 1 : 0;
-        CharSequence state = node.getStateDescription();
+        CharSequence state = android.os.Build.VERSION.SDK_INT >= 30 ? node.getStateDescription() : null;
         String info = state == null ? "" : state.toString().toLowerCase(Locale.ROOT);
         if (info.isEmpty() && node.getContentDescription() != null)
             info = node.getContentDescription().toString().toLowerCase(Locale.ROOT);
