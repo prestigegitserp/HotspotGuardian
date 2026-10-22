@@ -1,4 +1,12 @@
-# Hotspot Guardian v3 — One-Phone Recovery for Samsung Galaxy A35
+# Hotspot Guardian v3.1 — Samsung Accessibility Detection Fix
+
+**Latest installable APK:** [Successful build & APK artifact](https://github.com/prestigegitserp/HotspotGuardian/actions/runs/39786056953) — artifact: `HotspotGuardian-v3.1-Diagnostic-APK`.
+
+New in 3.1: explicit `Hotspot Guardian Recovery` accessibility-service label and on-device Android `AccessibilityManager.getInstalledAccessibilityServiceList()` self-diagnostics. The app reports whether Android registers its service, which is distinct from whether the sideloaded service is enabled.
+
+**If missing from Samsung Accessibility → Installed apps:** Settings → Apps → Hotspot Guardian → ⋮ → Allow restricted settings (only if you trust the source), then reopen Accessibility. If absent, run the built-in diagnostic and reboot. This restriction is Android/One UI security policy, not automatically a code bug.
+
+
 
 **No laptop, no HTML, no IP addresses, no web server, no heartbeats.** The previous network-monitor implementation and companion page were intentionally removed.
 
