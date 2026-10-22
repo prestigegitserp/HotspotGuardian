@@ -143,7 +143,11 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
                 probes = 0; reopenCount = 0;
                 handler.postDelayed(this::openPanel, 1850);
             } else if (tile.state == 0) {
-                // Already OFF: do not turn it off again.
+                // Never enable a deliberately disabled hotspot as a scheduled side effect.
+                if (scheduled) {
+                    fail("هات‌اسپات از قبل خاموش بود؛ رفرش دوره‌ای آن را روشن نمی‌کند.");
+                    return;
+                }
                 if (!tile.click()) { fail("سامسونگ روشن‌کردن هات‌اسپات را رد کرد."); return; }
                 stage = WAIT_ON;
                 probes = 0; reopenCount = 0;
