@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 import android.os.SystemClock;
 
 import java.io.BufferedOutputStream;
@@ -38,6 +39,10 @@ public final class MonitorService extends Service {
     public static volatile boolean isRunning = false;
     public static volatile int activeClients = 0;
 
+    public static volatile boolean keepAwakeSelected = false;
+    public static volatile boolean autoRecoverySelected = false;
+    private final RecoveryPolicy recoveryPolicy = new RecoveryPolicy();
+    private PowerManager.WakeLock cpuWakeLock;
     private final HeartbeatRegistry registry = new HeartbeatRegistry();
     private ExecutorService serverExecutor;
     private ScheduledExecutorService checkExecutor;
@@ -60,7 +65,10 @@ public final class MonitorService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        if (keepRunning) return START_NOT_STICKY;
+        if (keepRunning) {
+            applyWakeLock();
+            return START_NOT_STICKY;
+        }
         Notification base = makeNotification(CHANNEL_RUNNING, "پایش فعال",
                 "منتظر دریافت پیام از لپ‌تاپ", true);
         if (Build.VERSION.SDK_INT >= 34) {
@@ -71,6 +79,8 @@ public final class MonitorService extends Service {
         keepRunning = true;
         isRunning = true;
         registry.clear();
+        recoveryPolicy.clear();
+        applyWakeLock();
         currentUrl = "";
         status = "در حال یافتن نشانی محلی هات‌اسپات…";
         serverExecutor = Executors.newSingleThreadExecutor();
@@ -78,6 +88,21 @@ public final class MonitorService extends Service {
         serverExecutor.execute(this::serveLoop);
         checkExecutor.scheduleWithFixedDelay(this::checkHeartbeats, 10, 10, TimeUnit.SECONDS);
         return START_NOT_STICKY;
+    }
+
+    /** Explicit user opt-in, CPU-only, no Wi-Fi configuration changes. */
+    private void applyWakeLock() {
+        if (keepAwakeSelected && keepRunning) {
+            if (cpuWakeLock == null) {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                        "HotspotGuardian:UserEnabledCpuGuard");
+                cpuWakeLock.setReferenceCounted(false);
+            }
+            if (!cpuWakeLock.isHeld()) cpuWakeLock.acquire();
+        } else if (cpuWakeLock != null && cpuWakeLock.isHeld()) {
+            cpuWakeLock.release();
+        }
     }
 
     private Notification makeNotification(String channel, String title,
@@ -109,6 +134,13 @@ public final class MonitorService extends Service {
         activeClients = registry.activeCount(now);
         int newAlarms = registry.takeNewAlarms(now);
         if (newAlarms > 0) {
+            if (recoveryPolicy.allow(now, registry.totalSeen() > 0,
+                    activeClients == 0, autoRecoverySelected,
+                    RecoveryAccessibilityService.isReady())) {
+                if (RecoveryAccessibilityService.request()) {
+                    status = "تلاش برای بازیابی خودکار؛ ممکن است اینترنت کوتاه قطع شود.";
+                }
+            }
             status = "هشدار: ارتباط دست‌کم یک لپ‌تاپ بیش از ۹۰ ثانیه قطع است (یا مرورگر خوابیده).";
             getSystemService(NotificationManager.class).notify(ALERT_ID,
                 makeNotification(CHANNEL_ALERTS, "احتمال قطع اتصال هات‌اسپات",
@@ -254,6 +286,10 @@ public final class MonitorService extends Service {
     @Override public void onDestroy() {
         keepRunning = false;
         isRunning = false;
+        if (cpuWakeLock != null && cpuWakeLock.isHeld()) cpuWakeLock.release();
+        cpuWakeLock = null;
+        autoRecoverySelected = false;
+        keepAwakeSelected = false;
         currentUrl = "";
         status = "پایش خاموش است.";
         activeClients = 0;
@@ -265,6 +301,7 @@ public final class MonitorService extends Service {
         if (checkExecutor != null) checkExecutor.shutdownNow();
         getSystemService(NotificationManager.class).cancel(ALERT_ID);
         registry.clear();
+        recoveryPolicy.clear();
         super.onDestroy();
     }
 }
