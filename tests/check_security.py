@@ -48,5 +48,9 @@ assert 'isKeyguardLocked()' in sources
 assert 'RecoveryAccessibilityService.canRecoverNow()' in sources
 assert 'requestClaimed.compareAndSet(false, true)' in sources
 assert 'recoveryPolicy.attempt(' in sources
+assert 'LockScreenRecoveryGate.shouldDefer(' in sources
+assert 'LockScreenRecoveryGate.mayRequestUi(' in sources
+assert 'requestDismissKeyguard' not in sources
+assert 'setShowWhenLocked' not in sources
 assert 'RecoveryAccessibilityService::request' in sources
 print('PASS: opt-in wake lock, bounded UI recovery, no file / shell / system-setting writes')
