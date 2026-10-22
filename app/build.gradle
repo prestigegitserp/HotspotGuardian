@@ -6,8 +6,8 @@ android {
         applicationId 'com.example.hotspotguardian'
         minSdk 26
         targetSdk 35
-        versionCode 2
-        versionName '2.0-recovery'
+        versionCode 3
+        versionName '2.1-fast-recovery'
     }
     buildTypes {
         debug { debuggable true }
