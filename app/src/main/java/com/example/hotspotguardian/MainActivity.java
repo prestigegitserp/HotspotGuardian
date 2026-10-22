@@ -21,7 +21,7 @@ import android.widget.TextView;
 public final class MainActivity extends Activity {
     private TextView state, address;
     private Button start, stop, recover;
-    private CheckBox cpuGuard, autoFix;
+    private CheckBox cpuGuard, radioGuard, autoFix;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable updater = new Runnable() {
         @Override public void run() {
@@ -38,7 +38,7 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 40, 32, 32);
         scroll.addView(root);
-        root.addView(text("Hotspot Guardian Recovery v2.1", 24));
+        root.addView(text("Hotspot Guardian Recovery v2.2", 24));
         root.addView(text("پایش + پیشگیری آزمایشی از خواب CPU + تلاش اختیاری برای بازیابی هات‌اسپات. نه درمان تضمینی مودم گوشی.", 16));
         state = text("پایش خاموش است.", 17);
         address = text("", 19);
@@ -54,6 +54,15 @@ public final class MainActivity extends Activity {
                 startService(new Intent(this, MonitorService.class));
         });
         root.addView(cpuGuard);
+        radioGuard = new CheckBox(this);
+        radioGuard.setText("Wi-Fi Guard اختیاری در پس‌زمینه/صفحه قفل (آزمایشی؛ مصرف باتری بیشتر)");
+        radioGuard.setChecked(MonitorService.radioGuardSelected);
+        radioGuard.setOnCheckedChangeListener((button, checked) -> {
+            MonitorService.radioGuardSelected = checked;
+            if (MonitorService.isRunning)
+                startService(new Intent(this, MonitorService.class));
+        });
+        root.addView(radioGuard);
         autoFix = new CheckBox(this);
         autoFix.setText("بازیابی خودکار اختیاری پس از قطع ۱۸ ثانیه‌ای همه کلاینت‌ها (حداکثر ۳ بار؛ فاصله ۴۵ ثانیه)");
         autoFix.setChecked(MonitorService.autoRecoverySelected);
@@ -62,7 +71,7 @@ public final class MainActivity extends Activity {
         root.addView(autoFix);
         root.addView(text("بازیابی خودکار به مجوز اختیاری Accessibility نیاز دارد، "
             + "ممکن است اپ جلوی گوشی را باز کند، هات‌اسپات را لحظه‌ای قطع کند، "
-            + "و هنگام قفل بودن صفحه یا نبود کلید قابل‌شناسایی کار نمی‌کند. "
+            + "و هنگام قفل بودن صفحه، بازیابی در RAM منتظر باز شدن معمول قفل می‌ماند. "
             + "صرفاً کلید Mobile Hotspot در پنل سریع بررسی می‌شود؛ "
             + "هیچ متن صفحه ذخیره یا ارسال نمی‌شود.", 14));
         Button accessibility = new Button(this);
@@ -83,8 +92,10 @@ public final class MainActivity extends Activity {
             } else if (!RecoveryAccessibilityService.isReady()) {
                 state.setText("ابتدا مجوز اختیاری Accessibility را به Hotspot Guardian بده.");
             } else {
-                RecoveryAccessibilityService.request();
-                state.setText("دستور بازیابی به سرویس اختیاری فرستاده شد؛ وضعیت را بررسی کن.");
+                boolean accepted = RecoveryAccessibilityService.request();
+                state.setText(accepted
+                    ? "دستور بازیابی پذیرفته شد؛ وضعیت را بررسی کن."
+                    : "درخواست اجرا نشد: گوشی را باز نگه دار و اجازه بده بازیابی قبلی تمام شود.");
             }
         });
         root.addView(recover);
@@ -110,6 +121,9 @@ public final class MainActivity extends Activity {
         root.addView(text("۱) هات‌اسپات گوشی را روشن کن. ۲) شروع پایش را بزن. "
                 + "۳) نشانی نمایش‌داده‌شده را در مرورگر لپ‌تاپ متصل به همان هات‌اسپات باز کن. "
                 + "۴) صفحه را باز بگذار. هر ۳ ثانیه پیام می‌فرستد؛ اگر بیش از ۱۸ ثانیه پیام نرسد، هشدار صادر می‌شود.", 15));
+        root.addView(text("حالت صفحه قفل: CPU/Wi-Fi Guard در صورت اجازه اندروید ادامه دارند. "
+                + "اگر اتصال قطع شود، اعلان می‌آید؛ ریست هات‌اسپات تا بازکردن قفل انجام نمی‌شود. "
+                + "این برنامه قفل گوشی را دور نمی‌زند و مجوز تغییر مستقیم Tethering ندارد.", 15));
         root.addView(text("توجه: قطع هات‌اسپات ممکن است ناشی از سخت‌افزار یا One UI باشد و هیچ "
                 + "اپ معمولی نمی‌تواند جلوی آن را تضمین کند. روشن نگه داشتن CPU راهکار آزمایشی است؛ "
                 + "خواب لپ‌تاپ/مرورگر نیز می‌تواند بازیابی خودکار اشتباه ایجاد کند. "
