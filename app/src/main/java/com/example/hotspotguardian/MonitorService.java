@@ -1,11 +1,13 @@
 package com.example.hotspotguardian;
 
+import android.app.KeyguardManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.net.wifi.WifiManager;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
@@ -40,9 +42,12 @@ public final class MonitorService extends Service {
     public static volatile int activeClients = 0;
 
     public static volatile boolean keepAwakeSelected = false;
+    public static volatile boolean radioGuardSelected = false;
     public static volatile boolean autoRecoverySelected = false;
+    public static volatile boolean deferredRecovery = false;
     private final RecoveryPolicy recoveryPolicy = new RecoveryPolicy();
     private PowerManager.WakeLock cpuWakeLock;
+    private WifiManager.WifiLock radioWakeLock;
     private final HeartbeatRegistry registry = new HeartbeatRegistry();
     private ExecutorService serverExecutor;
     private ScheduledExecutorService checkExecutor;
@@ -66,7 +71,7 @@ public final class MonitorService extends Service {
             return START_NOT_STICKY;
         }
         if (keepRunning) {
-            applyWakeLock();
+            applyPowerGuards();
             return START_NOT_STICKY;
         }
         Notification base = makeNotification(CHANNEL_RUNNING, "پایش فعال",
@@ -80,7 +85,8 @@ public final class MonitorService extends Service {
         isRunning = true;
         registry.clear();
         recoveryPolicy.clear();
-        applyWakeLock();
+        deferredRecovery = false;
+        applyPowerGuards();
         currentUrl = "";
         status = "در حال یافتن نشانی محلی هات‌اسپات…";
         serverExecutor = Executors.newSingleThreadExecutor();
@@ -90,18 +96,39 @@ public final class MonitorService extends Service {
         return START_NOT_STICKY;
     }
 
-    /** Explicit user opt-in, CPU-only, no Wi-Fi configuration changes. */
-    private void applyWakeLock() {
-        if (keepAwakeSelected && keepRunning) {
-            if (cpuWakeLock == null) {
-                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-                cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-                        "HotspotGuardian:UserEnabledCpuGuard");
-                cpuWakeLock.setReferenceCounted(false);
+    /**
+     * Optional RAM-only CPU and Wi-Fi locks. Neither can force SoftAP to remain
+     * discoverable or bypass system Doze/tethering failures. No auto screen unlock.
+     */
+    private void applyPowerGuards() {
+        try {
+            if (keepAwakeSelected && keepRunning) {
+                if (cpuWakeLock == null) {
+                    PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                    cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                            "HotspotGuardian:UserEnabledCpuGuard");
+                    cpuWakeLock.setReferenceCounted(false);
+                }
+                if (!cpuWakeLock.isHeld()) cpuWakeLock.acquire();
+            } else if (cpuWakeLock != null && cpuWakeLock.isHeld()) {
+                cpuWakeLock.release();
             }
-            if (!cpuWakeLock.isHeld()) cpuWakeLock.acquire();
-        } else if (cpuWakeLock != null && cpuWakeLock.isHeld()) {
-            cpuWakeLock.release();
+
+            if (radioGuardSelected && keepRunning) {
+                if (radioWakeLock == null) {
+                    WifiManager wifi = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                    if (wifi != null) {
+                        radioWakeLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                                "HotspotGuardian:OptionalWifiGuard");
+                        radioWakeLock.setReferenceCounted(false);
+                    }
+                }
+                if (radioWakeLock != null && !radioWakeLock.isHeld()) radioWakeLock.acquire();
+            } else if (radioWakeLock != null && radioWakeLock.isHeld()) {
+                radioWakeLock.release();
+            }
+        } catch (RuntimeException ignored) {
+            status = "فعال‌سازی محافظ انرژی توسط اندروید رد شد؛ پایش ادامه دارد.";
         }
     }
 
@@ -139,17 +166,37 @@ public final class MonitorService extends Service {
                 makeNotification(CHANNEL_ALERTS, "احتمال قطع ارتباط هات‌اسپات",
                     "پیام پایش بیش از ۱۸ ثانیه نرسیده؛ اتصال را بررسی کن.", false));
         }
-        // Critical fix: do not gate retries on newAlarms.
-        // New alarms occur only once per disconnect, but the outage may persist.
-        if (registry.hasAlarmedClient() && activeClients == 0 &&
-                recoveryPolicy.allow(now, registry.totalSeen() > 0,
-                    true, autoRecoverySelected, RecoveryAccessibilityService.isReady())) {
-            if (RecoveryAccessibilityService.request()) {
-                status = "تلاش بازیابی شماره " + recoveryPolicy.attempts()
-                        + " از ۳؛ فاصله حداقل ۴۵ ثانیه.";
+        // Continuous monitoring also runs with the screen off when Android permits.
+        // A secure lock is never bypassed. Queue a recovery in RAM until the user unlocks.
+        boolean outage = registry.hasAlarmedClient() && activeClients == 0
+                && registry.totalSeen() > 0;
+        if (outage && autoRecoverySelected && RecoveryAccessibilityService.isReady()) {
+            KeyguardManager keyguard = (KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            boolean lockedOrAsleep = keyguard == null || keyguard.isKeyguardLocked()
+                    || power == null || !power.isInteractive();
+            if (lockedOrAsleep) {
+                if (!deferredRecovery) {
+                    getSystemService(NotificationManager.class).notify(ALERT_ID,
+                            makeNotification(CHANNEL_ALERTS, "قطع ارتباط؛ بازیابی منتظر بازشدن قفل",
+                                    "صفحه را باز کن؛ اگر قطعی ادامه داشت، برنامه برای بازیابی تلاش می‌کند.", false));
+                }
+                deferredRecovery = true;
+                status = "پایش فعال است؛ بازیابی در RAM منتظر بازکردن قفل گوشی است.";
+            } else {
+                if (recoveryPolicy.attempt(now, true, true, true,
+                        RecoveryAccessibilityService.canRecoverNow(),
+                        RecoveryAccessibilityService::request)) {
+                    deferredRecovery = false;
+                    status = "بازیابی پذیرفته شد؛ تلاش " + recoveryPolicy.attempts()
+                            + " از ۳. نتیجه اتصال را بررسی کن.";
+                }
             }
+        } else {
+            deferredRecovery = false;
         }
-        if (!registry.hasAlarmedClient()) {
+        if (!outage) {
+            deferredRecovery = false;
             getSystemService(NotificationManager.class).cancel(ALERT_ID);
         }
     }
@@ -235,7 +282,10 @@ public final class MonitorService extends Service {
             boolean wasOffline = registry.hasAlarmedClient()
                     && registry.activeCount(now) == 0;
             registry.heartbeat(client.getInetAddress().getHostAddress(), now);
-            if (wasOffline) recoveryPolicy.onHeartbeatRestored();
+            if (wasOffline) {
+                recoveryPolicy.onHeartbeatRestored();
+                deferredRecovery = false;
+            }
             activeClients = registry.activeCount(now);
             if (!registry.hasAlarmedClient()) {
                 status = "ارتباط برقرار است؛ دستگاه‌های فعال: " + activeClients;
@@ -295,8 +345,12 @@ public final class MonitorService extends Service {
         isRunning = false;
         if (cpuWakeLock != null && cpuWakeLock.isHeld()) cpuWakeLock.release();
         cpuWakeLock = null;
+        if (radioWakeLock != null && radioWakeLock.isHeld()) radioWakeLock.release();
+        radioWakeLock = null;
         autoRecoverySelected = false;
         keepAwakeSelected = false;
+        radioGuardSelected = false;
+        deferredRecovery = false;
         currentUrl = "";
         status = "پایش خاموش است.";
         activeClients = 0;
