@@ -134,6 +134,7 @@ public final class MonitorService extends Service {
         activeClients = registry.activeCount(now);
         int newAlarms = registry.takeNewAlarms(now);
         if (newAlarms > 0) {
+            status = "هشدار: هیچ پیام تازه‌ای از لپ‌تاپ نرسیده؛ شاید مرورگر خواب باشد.";
             if (recoveryPolicy.allow(now, registry.totalSeen() > 0,
                     activeClients == 0, autoRecoverySelected,
                     RecoveryAccessibilityService.isReady())) {
@@ -141,7 +142,6 @@ public final class MonitorService extends Service {
                     status = "تلاش برای بازیابی خودکار؛ ممکن است اینترنت کوتاه قطع شود.";
                 }
             }
-            status = "هشدار: ارتباط دست‌کم یک لپ‌تاپ بیش از ۹۰ ثانیه قطع است (یا مرورگر خوابیده).";
             getSystemService(NotificationManager.class).notify(ALERT_ID,
                 makeNotification(CHANNEL_ALERTS, "احتمال قطع اتصال هات‌اسپات",
                     "ارتباط صفحه پایش لپ‌تاپ قطع یا متوقف شده است.", false));
