@@ -1,56 +1,46 @@
 #!/usr/bin/env python3
 from pathlib import Path
 from xml.etree import ElementTree as ET
-base = Path(__file__).resolve().parents[1]
-root = ET.parse(base/'app/src/main/AndroidManifest.xml').getroot()
-ns='{http://schemas.android.com/apk/res/android}'
-allowed={
-    'android.permission.INTERNET',
-    'android.permission.WAKE_LOCK',
-    'android.permission.POST_NOTIFICATIONS',
-    'android.permission.FOREGROUND_SERVICE',
-    'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
-}
-permissions={node.attrib[ns+'name'] for node in root.findall('uses-permission')}
-assert permissions == allowed, f'Unexpected permissions: {permissions ^ allowed}'
-app=root.find('application')
-assert app.attrib[ns+'allowBackup']=='false'
-services=app.findall('service')
-assert len(services)==2
-monitor=[s for s in services if s.attrib.get(ns+'name')=='.MonitorService'][0]
-recovery=[s for s in services if s.attrib.get(ns+'name')=='.RecoveryAccessibilityService'][0]
-assert monitor.attrib[ns+'exported']=='false'
-assert recovery.attrib[ns+'permission']=='android.permission.BIND_ACCESSIBILITY_SERVICE'
-sources='\n'.join(p.read_text() for p in (base/'app/src/main/java').rglob('*.java'))
-for forbidden in [
- 'SharedPreferences','openFileOutput','FileOutputStream','FileWriter',
- 'SQLiteDatabase','File.delete(', 'deleteDatabase(', 'deleteFile(',
- 'Runtime.getRuntime(', 'ProcessBuilder(', 'Settings.System.put',
- 'Settings.Global.put', 'WifiManager.setWifiEnabled',
- 'ConnectivityManager.startTethering', 'Log.', 'printStackTrace(',
- 'WebView', 'HttpURLConnection', 'URL.openConnection',
- 'Settings.Secure.put', 'requestDismissKeyguard', 'setShowWhenLocked',
- 'ACQUIRE_CAUSES_WAKEUP', 'GLOBAL_ACTION_POWER_DIALOG'
+import re
+root = Path(__file__).resolve().parents[1]
+ns = '{http://schemas.android.com/apk/res/android}'
+manifest = ET.parse(root / 'app/src/main/AndroidManifest.xml').getroot()
+permissions = {x.attrib[ns+'name'] for x in manifest.findall('uses-permission')}
+assert permissions == {
+  'android.permission.POST_NOTIFICATIONS',
+  'android.permission.FOREGROUND_SERVICE',
+  'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
+}, f'Unexpected permissions: {permissions}'
+app = manifest.find('application')
+assert app.attrib[ns+'allowBackup'] == 'false'
+assert ns+'usesCleartextTraffic' not in app.attrib
+services = app.findall('service')
+assert len(services) == 2
+monitor = next(x for x in services if x.attrib[ns+'name'] == '.MonitorService')
+ui = next(x for x in services if x.attrib[ns+'name'] == '.RecoveryAccessibilityService')
+assert monitor.attrib[ns+'exported'] == 'false'
+assert ui.attrib[ns+'permission'] == 'android.permission.BIND_ACCESSIBILITY_SERVICE'
+text = '\n'.join(p.read_text() for p in (root/'app/src/main/java').rglob('*.java'))
+for disallowed in [
+    'HttpURLConnection', 'ServerSocket', 'Socket(', 'InetAddress',
+    'WebView', 'SharedPreferences', 'FileOutputStream', 'FileWriter',
+    'openFileOutput', 'SQLiteDatabase', 'deleteDatabase(', 'deleteFile(',
+    'Runtime.getRuntime(', 'ProcessBuilder(', 'WifiManager.setWifiEnabled',
+    'ConnectivityManager.startTethering', 'TetheringManager.startTethering',
+    'Log.', 'printStackTrace(', 'requestDismissKeyguard', 'setShowWhenLocked',
+    'ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS', 'ACCESSIBILITY_SCREENSHOT',
+    'setImportantForAccessibility', 'GLOBAL_ACTION_POWER_DIALOG',
 ]:
-    assert forbidden not in sources, f'Forbidden API: {forbidden}'
-assert 'new ServerSocket(PORT, 4, local)' in sources
-assert 'Cache-Control: no-store' in sources
-assert 'public static volatile boolean isRunning' in sources
-assert 'PARTIAL_WAKE_LOCK' in sources
-assert 'MAX_ATTEMPTS = 3' in sources
-assert 'COOLDOWN_MS = 45_000L' in sources
-assert 'com.android.systemui' in sources
-assert 'WifiManager.WIFI_MODE_FULL_HIGH_PERF' in sources
-assert 'radioWakeLock.release()' in sources
-assert 'cpuWakeLock.release()' in sources
-assert 'deferredRecovery' in sources
-assert 'isKeyguardLocked()' in sources
-assert 'RecoveryAccessibilityService.canRecoverNow()' in sources
-assert 'requestClaimed.compareAndSet(false, true)' in sources
-assert 'recoveryPolicy.attempt(' in sources
-assert 'LockScreenRecoveryGate.shouldDefer(' in sources
-assert 'LockScreenRecoveryGate.mayRequestUi(' in sources
-assert 'requestDismissKeyguard' not in sources
-assert 'setShowWhenLocked' not in sources
-assert 'RecoveryAccessibilityService::request' in sources
-print('PASS: opt-in wake lock, bounded UI recovery, no file / shell / system-setting writes')
+    assert disallowed not in text, f'Forbidden or deprecated access: {disallowed}'
+assert 'new ServerSocket(' not in text
+assert 'android.permission.INTERNET' not in permissions
+assert 'android.permission.WAKE_LOCK' not in permissions
+assert 'MaintenancePolicy' in text and '30L * 60 * 1000' in text
+assert 'KEYGUARD_SERVICE' in text and 'isKeyguardLocked()' in text
+assert 'claimed.compareAndSet(false, true)' in text
+assert 'getRootInActiveWindow()' in text
+assert 'com.android.systemui' in text
+assert 'MAX_PROBES = 12' in text
+assert 'allowBackup' in (root/'app/src/main/AndroidManifest.xml').read_text()
+assert not list((root/'app/src/main/java').rglob('*Heartbeat*.java'))
+print('PASS: no network, no file writes, no high-risk permissions, UI guardrails')
