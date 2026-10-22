@@ -1,0 +1,3 @@
+<resources>
+    <string name="accessibility_description">Optional hotspot recovery: reads only Quick Settings during a user-authorized recovery and clicks only a verified Mobile Hotspot switch. No events are saved.</string>
+</resources>
