@@ -179,7 +179,7 @@ public final class MainActivity extends Activity {
         RadioButton r60 = radio("۶۰ دقیقه", 60);
         RadioButton r120 = radio("۱۲۰ دقیقه", 120);
         frequency.addView(r30); frequency.addView(r60); frequency.addView(r120);
-        frequency.check(60);
+        frequency.check(r60.getId());
         periodic.addView(frequency);
         arm = button("فعال‌کردن رفرش دوره‌ای", true);
         periodic.addView(arm);
@@ -205,7 +205,8 @@ public final class MainActivity extends Activity {
     private RadioButton radio(String text, int value) {
         RadioButton b = new RadioButton(this);
         b.setText(text);
-        b.setId(value);
+        b.setId(View.generateViewId());
+        b.setTag(value);
         b.setTextSize(12);
         b.setTextColor(INK);
         b.setPadding(0, 0, dp(5), 0);
@@ -224,7 +225,10 @@ public final class MainActivity extends Activity {
             return;
         }
         Intent action = new Intent(this, MonitorService.class).setAction(MonitorService.ACTION_START);
-        action.putExtra(MonitorService.EXTRA_MINUTES, frequency.getCheckedRadioButtonId());
+        View selected = frequency.findViewById(frequency.getCheckedRadioButtonId());
+        int minutes = selected != null && selected.getTag() instanceof Integer
+                ? (Integer) selected.getTag() : 60;
+        action.putExtra(MonitorService.EXTRA_MINUTES, minutes);
         try {
             startForegroundService(action);
             handler.postDelayed(this::updateScreen, 350);
