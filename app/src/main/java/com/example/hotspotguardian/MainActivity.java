@@ -8,9 +8,11 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -18,7 +20,8 @@ import android.widget.TextView;
 /** No app data storage. Users explicitly start and stop monitoring. */
 public final class MainActivity extends Activity {
     private TextView state, address;
-    private Button start, stop;
+    private Button start, stop, recover;
+    private CheckBox cpuGuard, autoFix;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable updater = new Runnable() {
         @Override public void run() {
@@ -35,13 +38,56 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 40, 32, 32);
         scroll.addView(root);
-        root.addView(text("نگهبان امن هات‌اسپات", 24));
-        root.addView(text("پایش اتصال لپ‌تاپ، بدون روت، تغییر تنظیمات گوشی، حذف داده یا ثبت فایل توسط برنامه.", 16));
+        root.addView(text("Hotspot Guardian Recovery v2", 24));
+        root.addView(text("پایش + پیشگیری آزمایشی از خواب CPU + تلاش اختیاری برای بازیابی هات‌اسپات. نه درمان تضمینی مودم گوشی.", 16));
         state = text("پایش خاموش است.", 17);
         address = text("", 19);
         address.setTextIsSelectable(true);
         root.addView(state);
         root.addView(address);
+        cpuGuard = new CheckBox(this);
+        cpuGuard.setText("حفاظت از خواب CPU هنگام پایش (مصرف باتری بیشتر؛ آزمایشی)");
+        cpuGuard.setChecked(MonitorService.keepAwakeSelected);
+        cpuGuard.setOnCheckedChangeListener((button, checked) -> {
+            MonitorService.keepAwakeSelected = checked;
+            if (MonitorService.isRunning)
+                startService(new Intent(this, MonitorService.class));
+        });
+        root.addView(cpuGuard);
+        autoFix = new CheckBox(this);
+        autoFix.setText("بازیابی خودکار اختیاری پس از قطع ۹۰ ثانیه‌ای تمام کلاینت‌ها (حداکثر ۳ بار؛ فاصله ۱۵ دقیقه)");
+        autoFix.setChecked(MonitorService.autoRecoverySelected);
+        autoFix.setOnCheckedChangeListener((button, checked) ->
+            MonitorService.autoRecoverySelected = checked);
+        root.addView(autoFix);
+        root.addView(text("بازیابی خودکار به مجوز اختیاری Accessibility نیاز دارد، "
+            + "ممکن است اپ جلوی گوشی را باز کند، هات‌اسپات را لحظه‌ای قطع کند، "
+            + "و هنگام قفل بودن صفحه یا نبود کلید قابل‌شناسایی کار نمی‌کند. "
+            + "صرفاً کلید Mobile Hotspot در پنل سریع بررسی می‌شود؛ "
+            + "هیچ متن صفحه ذخیره یا ارسال نمی‌شود.", 14));
+        Button accessibility = new Button(this);
+        accessibility.setText("تنظیم مجوز بازیابی (Accessibility)");
+        accessibility.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            } catch (RuntimeException ignored) {
+                state.setText("پنجره تنظیمات Accessibility باز نشد.");
+            }
+        });
+        root.addView(accessibility);
+        recover = new Button(this);
+        recover.setText("تلاش برای بازیابی همین حالا (صفحه باز و بدون قفل)");
+        recover.setOnClickListener(v -> {
+            if (!MonitorService.isRunning) {
+                state.setText("اول پایش را شروع کن.");
+            } else if (!RecoveryAccessibilityService.isReady()) {
+                state.setText("ابتدا مجوز اختیاری Accessibility را به Hotspot Guardian بده.");
+            } else {
+                RecoveryAccessibilityService.request();
+                state.setText("دستور بازیابی به سرویس اختیاری فرستاده شد؛ وضعیت را بررسی کن.");
+            }
+        });
+        root.addView(recover);
         start = new Button(this);
         start.setText("شروع پایش");
         start.setOnClickListener(v -> {
@@ -64,9 +110,11 @@ public final class MainActivity extends Activity {
         root.addView(text("۱) هات‌اسپات گوشی را روشن کن. ۲) شروع پایش را بزن. "
                 + "۳) نشانی نمایش‌داده‌شده را در مرورگر لپ‌تاپ متصل به همان هات‌اسپات باز کن. "
                 + "۴) صفحه را باز بگذار. اگر ۹۰ ثانیه پیام نرسد، هشدار صادر می‌شود.", 15));
-        root.addView(text("توجه: برنامه فقط اتصال واقعی به صفحه محلی را پایش می‌کند؛ "
-                + "SSID ناپدیدشده را تعمیر یا دوباره فعال نمی‌کند. خواب لپ‌تاپ و مرورگر "
-                + "می‌تواند هشدار کاذب ایجاد کند. خود سیستم‌عامل ممکن است رویدادهای معمول را ثبت کند.", 15));
+        root.addView(text("توجه: قطع هات‌اسپات ممکن است ناشی از سخت‌افزار یا One UI باشد و هیچ "
+                + "اپ معمولی نمی‌تواند جلوی آن را تضمین کند. روشن نگه داشتن CPU راهکار آزمایشی است؛ "
+                + "خواب لپ‌تاپ/مرورگر نیز می‌تواند بازیابی خودکار اشتباه ایجاد کند. "
+                + "برای ایمنی، در حالت پیش‌فرض بازیابی خودکار خاموش است. "
+                + "از روت، حذف داده، لاگ و اتصال به اینترنت خارجی استفاده نمی‌کنیم.", 15));
         setContentView(scroll);
     }
 
