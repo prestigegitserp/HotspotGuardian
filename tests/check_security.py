@@ -20,6 +20,8 @@ monitor = next(x for x in services if x.attrib[ns+'name'] == '.MonitorService')
 ui = next(x for x in services if x.attrib[ns+'name'] == '.RecoveryAccessibilityService')
 assert monitor.attrib[ns+'exported'] == 'false'
 assert ui.attrib[ns+'permission'] == 'android.permission.BIND_ACCESSIBILITY_SERVICE'
+assert ui.attrib[ns+'label'] == '@string/accessibility_service_label'
+assert ui.find('meta-data').attrib[ns+'resource'] == '@xml/recovery_accessibility'
 text = '\n'.join(p.read_text() for p in (root/'app/src/main/java').rglob('*.java'))
 for disallowed in [
     'HttpURLConnection', 'ServerSocket', 'Socket(', 'InetAddress',
@@ -35,6 +37,8 @@ for disallowed in [
 assert 'new ServerSocket(' not in text
 assert 'android.permission.INTERNET' not in permissions
 assert 'android.permission.WAKE_LOCK' not in permissions
+assert 'getInstalledAccessibilityServiceList()' in text
+assert 'getPackageName().equals(resolve.serviceInfo.packageName)' in text
 assert 'MaintenancePolicy' in text and '30L * 60 * 1000' in text
 assert 'KEYGUARD_SERVICE' in text and 'isKeyguardLocked()' in text
 assert 'claimed.compareAndSet(false, true)' in text
