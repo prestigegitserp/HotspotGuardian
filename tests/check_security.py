@@ -29,7 +29,8 @@ for forbidden in [
  'Settings.Global.put', 'WifiManager.setWifiEnabled',
  'ConnectivityManager.startTethering', 'Log.', 'printStackTrace(',
  'WebView', 'HttpURLConnection', 'URL.openConnection',
- 'Settings.Secure.put'
+ 'Settings.Secure.put', 'requestDismissKeyguard', 'setShowWhenLocked',
+ 'ACQUIRE_CAUSES_WAKEUP', 'GLOBAL_ACTION_POWER_DIALOG'
 ]:
     assert forbidden not in sources, f'Forbidden API: {forbidden}'
 assert 'new ServerSocket(PORT, 4, local)' in sources
@@ -39,4 +40,13 @@ assert 'PARTIAL_WAKE_LOCK' in sources
 assert 'MAX_ATTEMPTS = 3' in sources
 assert 'COOLDOWN_MS = 45_000L' in sources
 assert 'com.android.systemui' in sources
+assert 'WifiManager.WIFI_MODE_FULL_HIGH_PERF' in sources
+assert 'radioWakeLock.release()' in sources
+assert 'cpuWakeLock.release()' in sources
+assert 'deferredRecovery' in sources
+assert 'isKeyguardLocked()' in sources
+assert 'RecoveryAccessibilityService.canRecoverNow()' in sources
+assert 'requestClaimed.compareAndSet(false, true)' in sources
+assert 'recoveryPolicy.attempt(' in sources
+assert 'RecoveryAccessibilityService::request' in sources
 print('PASS: opt-in wake lock, bounded UI recovery, no file / shell / system-setting writes')
