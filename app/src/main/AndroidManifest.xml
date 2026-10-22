@@ -1,15 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <application
         android:allowBackup="false"
         android:fullBackupContent="false"
-        android:label="Hotspot Guardian Safe"
-        android:usesCleartextTraffic="true"
+        android:label="Hotspot Guardian"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
@@ -17,24 +14,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service
-            android:name=".RecoveryAccessibilityService"
+        <service android:name=".RecoveryAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-            <meta-data
-                android:name="android.accessibilityservice"
+            <meta-data android:name="android.accessibilityservice"
                 android:resource="@xml/recovery_accessibility" />
         </service>
-        <service
-            android:name=".MonitorService"
+        <service android:name=".MonitorService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-started local hotspot client monitoring, optional CPU wake lock and opt-in recovery" />
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Explicit user scheduled UI maintenance for Android hotspot" />
         </service>
     </application>
 </manifest>
