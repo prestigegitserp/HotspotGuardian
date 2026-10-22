@@ -38,7 +38,7 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 40, 32, 32);
         scroll.addView(root);
-        root.addView(text("Hotspot Guardian Recovery v2", 24));
+        root.addView(text("Hotspot Guardian Recovery v2.1", 24));
         root.addView(text("پایش + پیشگیری آزمایشی از خواب CPU + تلاش اختیاری برای بازیابی هات‌اسپات. نه درمان تضمینی مودم گوشی.", 16));
         state = text("پایش خاموش است.", 17);
         address = text("", 19);
@@ -55,7 +55,7 @@ public final class MainActivity extends Activity {
         });
         root.addView(cpuGuard);
         autoFix = new CheckBox(this);
-        autoFix.setText("بازیابی خودکار اختیاری پس از قطع ۹۰ ثانیه‌ای تمام کلاینت‌ها (حداکثر ۳ بار؛ فاصله ۱۵ دقیقه)");
+        autoFix.setText("بازیابی خودکار اختیاری پس از قطع ۱۸ ثانیه‌ای همه کلاینت‌ها (حداکثر ۳ بار؛ فاصله ۴۵ ثانیه)");
         autoFix.setChecked(MonitorService.autoRecoverySelected);
         autoFix.setOnCheckedChangeListener((button, checked) ->
             MonitorService.autoRecoverySelected = checked);
@@ -109,7 +109,7 @@ public final class MainActivity extends Activity {
         root.addView(stop);
         root.addView(text("۱) هات‌اسپات گوشی را روشن کن. ۲) شروع پایش را بزن. "
                 + "۳) نشانی نمایش‌داده‌شده را در مرورگر لپ‌تاپ متصل به همان هات‌اسپات باز کن. "
-                + "۴) صفحه را باز بگذار. اگر ۹۰ ثانیه پیام نرسد، هشدار صادر می‌شود.", 15));
+                + "۴) صفحه را باز بگذار. هر ۳ ثانیه پیام می‌فرستد؛ اگر بیش از ۱۸ ثانیه پیام نرسد، هشدار صادر می‌شود.", 15));
         root.addView(text("توجه: قطع هات‌اسپات ممکن است ناشی از سخت‌افزار یا One UI باشد و هیچ "
                 + "اپ معمولی نمی‌تواند جلوی آن را تضمین کند. روشن نگه داشتن CPU راهکار آزمایشی است؛ "
                 + "خواب لپ‌تاپ/مرورگر نیز می‌تواند بازیابی خودکار اشتباه ایجاد کند. "
