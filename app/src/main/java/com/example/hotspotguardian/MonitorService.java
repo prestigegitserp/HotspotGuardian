@@ -175,7 +175,9 @@ public final class MonitorService extends Service {
             PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
             boolean lockedOrAsleep = keyguard == null || keyguard.isKeyguardLocked()
                     || power == null || !power.isInteractive();
-            if (lockedOrAsleep && recoveryPolicy.attempts() < RecoveryPolicy.MAX_ATTEMPTS) {
+            if (LockScreenRecoveryGate.shouldDefer(outage, autoRecoverySelected,
+                    RecoveryAccessibilityService.isReady(), lockedOrAsleep,
+                    !lockedOrAsleep, recoveryPolicy.attempts() < RecoveryPolicy.MAX_ATTEMPTS)) {
                 if (!deferredRecovery) {
                     getSystemService(NotificationManager.class).notify(ALERT_ID,
                             makeNotification(CHANNEL_ALERTS, "قطع ارتباط؛ بازیابی منتظر بازشدن قفل",
@@ -183,7 +185,9 @@ public final class MonitorService extends Service {
                 }
                 deferredRecovery = true;
                 status = "پایش فعال است؛ بازیابی در RAM منتظر بازکردن قفل گوشی است.";
-            } else if (!lockedOrAsleep) {
+            } else if (LockScreenRecoveryGate.mayRequestUi(outage, autoRecoverySelected,
+                    RecoveryAccessibilityService.isReady(), lockedOrAsleep,
+                    !lockedOrAsleep, recoveryPolicy.attempts() < RecoveryPolicy.MAX_ATTEMPTS)) {
                 if (recoveryPolicy.attempt(now, true, true, true,
                         RecoveryAccessibilityService.canRecoverNow(),
                         RecoveryAccessibilityService::request)) {
