@@ -4,6 +4,10 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -12,173 +16,261 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** No app data storage. Users explicitly start and stop monitoring. */
 public final class MainActivity extends Activity {
-    private TextView state, address;
-    private Button start, stop, recover;
-    private CheckBox cpuGuard, radioGuard, autoFix;
+    private static final int INK = Color.rgb(24, 41, 68);
+    private static final int BLUE = Color.rgb(29, 96, 197);
+    private static final int SOFT = Color.rgb(241, 246, 252);
+    private static final int MUTED = Color.rgb(91, 108, 128);
+    private static final int ERROR = Color.rgb(173, 48, 48);
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable updater = new Runnable() {
+    private TextView accessStatus, summary, scheduleStatus;
+    private Button primary, arm, stop;
+    private RadioGroup frequency;
+    private final Runnable refresher = new Runnable() {
         @Override public void run() {
-            refresh();
-            handler.postDelayed(this, 2000L);
+            updateScreen();
+            handler.postDelayed(this, 3000);
         }
     };
 
-    @Override protected void onCreate(Bundle b) {
-        super.onCreate(b);
-        getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(32, 40, 32, 32);
-        scroll.addView(root);
-        root.addView(text("Hotspot Guardian Recovery v2.2", 24));
-        root.addView(text("پایش + پیشگیری آزمایشی از خواب CPU + تلاش اختیاری برای بازیابی هات‌اسپات. نه درمان تضمینی مودم گوشی.", 16));
-        state = text("پایش خاموش است.", 17);
-        address = text("", 19);
-        address.setTextIsSelectable(true);
-        root.addView(state);
-        root.addView(address);
-        cpuGuard = new CheckBox(this);
-        cpuGuard.setText("حفاظت از خواب CPU هنگام پایش (مصرف باتری بیشتر؛ آزمایشی)");
-        cpuGuard.setChecked(MonitorService.keepAwakeSelected);
-        cpuGuard.setOnCheckedChangeListener((button, checked) -> {
-            MonitorService.keepAwakeSelected = checked;
-            if (MonitorService.isRunning)
-                startService(new Intent(this, MonitorService.class));
-        });
-        root.addView(cpuGuard);
-        radioGuard = new CheckBox(this);
-        radioGuard.setText("Wi-Fi Guard اختیاری در پس‌زمینه/صفحه قفل (آزمایشی؛ مصرف باتری بیشتر)");
-        radioGuard.setChecked(MonitorService.radioGuardSelected);
-        radioGuard.setOnCheckedChangeListener((button, checked) -> {
-            MonitorService.radioGuardSelected = checked;
-            if (MonitorService.isRunning)
-                startService(new Intent(this, MonitorService.class));
-        });
-        root.addView(radioGuard);
-        autoFix = new CheckBox(this);
-        autoFix.setText("بازیابی خودکار اختیاری پس از قطع ۱۸ ثانیه‌ای همه کلاینت‌ها (حداکثر ۳ بار؛ فاصله ۴۵ ثانیه)");
-        autoFix.setChecked(MonitorService.autoRecoverySelected);
-        autoFix.setOnCheckedChangeListener((button, checked) ->
-            MonitorService.autoRecoverySelected = checked);
-        root.addView(autoFix);
-        root.addView(text("بازیابی خودکار به مجوز اختیاری Accessibility نیاز دارد، "
-            + "ممکن است اپ جلوی گوشی را باز کند، هات‌اسپات را لحظه‌ای قطع کند، "
-            + "و هنگام قفل بودن صفحه، بازیابی در RAM منتظر باز شدن معمول قفل می‌ماند. "
-            + "صرفاً کلید Mobile Hotspot در پنل سریع بررسی می‌شود؛ "
-            + "هیچ متن صفحه ذخیره یا ارسال نمی‌شود.", 14));
-        Button accessibility = new Button(this);
-        accessibility.setText("تنظیم مجوز بازیابی (Accessibility)");
-        accessibility.setOnClickListener(v -> {
-            try {
-                startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-            } catch (RuntimeException ignored) {
-                state.setText("پنجره تنظیمات Accessibility باز نشد.");
-            }
-        });
-        root.addView(accessibility);
-        recover = new Button(this);
-        recover.setText("تلاش برای بازیابی همین حالا (صفحه باز و بدون قفل)");
-        recover.setOnClickListener(v -> {
-            if (!MonitorService.isRunning) {
-                state.setText("اول پایش را شروع کن.");
-            } else if (!RecoveryAccessibilityService.isReady()) {
-                state.setText("ابتدا مجوز اختیاری Accessibility را به Hotspot Guardian بده.");
-            } else {
-                boolean accepted = RecoveryAccessibilityService.request();
-                state.setText(accepted
-                    ? "دستور بازیابی پذیرفته شد؛ وضعیت را بررسی کن."
-                    : "درخواست اجرا نشد: گوشی را باز نگه دار و اجازه بده بازیابی قبلی تمام شود.");
-            }
-        });
-        root.addView(recover);
-        start = new Button(this);
-        start.setText("شروع پایش");
-        start.setOnClickListener(v -> {
-            if (Build.VERSION.SDK_INT >= 33
-                    && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 77);
-                return;
-            }
-            launchMonitor();
-        });
-        root.addView(start);
-        stop = new Button(this);
-        stop.setText("توقف کامل پایش");
-        stop.setOnClickListener(v -> {
-            stopService(new Intent(this, MonitorService.class));
-            refresh();
-        });
-        root.addView(stop);
-        root.addView(text("۱) هات‌اسپات گوشی را روشن کن. ۲) شروع پایش را بزن. "
-                + "۳) نشانی نمایش‌داده‌شده را در مرورگر لپ‌تاپ متصل به همان هات‌اسپات باز کن. "
-                + "۴) صفحه را باز بگذار. هر ۳ ثانیه پیام می‌فرستد؛ اگر بیش از ۱۸ ثانیه پیام نرسد، هشدار صادر می‌شود.", 15));
-        root.addView(text("حالت صفحه قفل: CPU/Wi-Fi Guard در صورت اجازه اندروید ادامه دارند. "
-                + "اگر اتصال قطع شود، اعلان می‌آید؛ ریست هات‌اسپات تا بازکردن قفل انجام نمی‌شود. "
-                + "این برنامه قفل گوشی را دور نمی‌زند و مجوز تغییر مستقیم Tethering ندارد.", 15));
-        root.addView(text("توجه: قطع هات‌اسپات ممکن است ناشی از سخت‌افزار یا One UI باشد و هیچ "
-                + "اپ معمولی نمی‌تواند جلوی آن را تضمین کند. روشن نگه داشتن CPU راهکار آزمایشی است؛ "
-                + "خواب لپ‌تاپ/مرورگر نیز می‌تواند بازیابی خودکار اشتباه ایجاد کند. "
-                + "برای ایمنی، در حالت پیش‌فرض بازیابی خودکار خاموش است. "
-                + "از روت، حذف داده، لاگ و اتصال به اینترنت خارجی استفاده نمی‌کنیم.", 15));
-        setContentView(scroll);
+    private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private GradientDrawable background(int color, int radius) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(color);
+        shape.setCornerRadius(dp(radius));
+        return shape;
     }
 
-    private TextView text(String s, int sp) {
+    private TextView label(String text, int size, int color, boolean bold) {
         TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setPadding(0, 12, 0, 12);
+        t.setText(text);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        t.setLineSpacing(dp(3), 1.12f);
+        if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         t.setGravity(Gravity.START);
         return t;
     }
 
-    @Override public void onRequestPermissionsResult(int requestCode,
-            String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == 77) {
-            if (grantResults.length > 0
-                    && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                launchMonitor();
-            } else {
-                state.setText("مجوز اعلان فعال نیست؛ پایش برای جلوگیری از هشدار بی‌صدا شروع نشد.");
+    private void addGap(LinearLayout target, int dp) {
+        View space = new View(this);
+        target.addView(space, new LinearLayout.LayoutParams(1, dp(dp)));
+    }
+
+    private LinearLayout section(LinearLayout root) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(17), dp(16), dp(17), dp(17));
+        card.setBackground(background(Color.WHITE, 18));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(14);
+        root.addView(card, params);
+        return card;
+    }
+
+    private Button button(String text, boolean primaryStyle) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(15);
+        b.setTextColor(primaryStyle ? Color.WHITE : BLUE);
+        b.setBackground(background(primaryStyle ? BLUE : SOFT, 12));
+        b.setMinimumHeight(dp(54));
+        b.setPadding(dp(8), dp(8), dp(8), dp(8));
+        return b;
+    }
+
+    @Override protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        getWindow().setStatusBarColor(Color.rgb(14, 36, 71));
+        getWindow().setNavigationBarColor(SOFT);
+        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
+        getWindow().getDecorView().setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.setBackgroundColor(SOFT);
+        LinearLayout main = new LinearLayout(this);
+        main.setOrientation(LinearLayout.VERTICAL);
+        main.setPadding(dp(16), dp(24), dp(16), dp(20));
+        scroll.addView(main);
+        main.addView(label("Hotspot Guardian", 28, INK, true));
+        main.addView(label("نسخه ۳ · بازیابی یک‌طرفه از خود گوشی", 15, MUTED, false));
+        addGap(main, 16);
+
+        LinearLayout recovery = section(main);
+        recovery.addView(label("بازیابی فوری هات‌اسپات", 19, INK, true));
+        recovery.addView(label("بدون لپ‌تاپ، IP، HTML یا ارسال پیام. با اجازه تو کلید Mobile Hotspot سامسونگ خاموش و سپس روشن می‌شود.", 14, MUTED, false));
+        addGap(recovery, 12);
+        primary = button("بازیابی همین الان", true);
+        recovery.addView(primary);
+        primary.setOnClickListener(v -> {
+            if (!RecoveryAccessibilityService.isReady()) {
+                summary.setText("اول مراحل فعال‌سازی دسترسی را انجام بده.");
+                return;
             }
-        }
+            if (!RecoveryAccessibilityService.canRecoverNow()) {
+                summary.setText("گوشی باید باز باشد و بازیابی قبلی تمام شده باشد.");
+                return;
+            }
+            if (RecoveryAccessibilityService.request(false))
+                summary.setText("درخواست پذیرفته شد؛ برنامه پنل سریع را بررسی می‌کند.");
+            else summary.setText("درخواست پذیرفته نشد؛ وضعیت دسترسی را بررسی کن.");
+        });
+        addGap(recovery, 8);
+        summary = label("آماده بررسی وضعیت.", 13, MUTED, false);
+        recovery.addView(summary);
+        addGap(recovery, 10);
+        Button manual = button("بازکردن تنظیمات هات‌اسپات (روش قطعیِ دستی)", false);
+        recovery.addView(manual);
+        manual.setOnClickListener(v -> {
+            try {
+                startActivity(new Intent("android.settings.TETHER_SETTINGS"));
+            } catch (RuntimeException ignored) {
+                try { startActivity(new Intent(Settings.ACTION_WIRELESS_SETTINGS)); }
+                catch (RuntimeException ignoredAgain) {
+                    summary.setText("سامسونگ صفحه تنظیمات را در دسترس قرار نداد.");
+                }
+            }
+        });
+
+        LinearLayout permissions = section(main);
+        permissions.addView(label("فعال‌سازی دسترسی بازیابی", 19, INK, true));
+        addGap(permissions, 7);
+        accessStatus = label("", 15, MUTED, true);
+        permissions.addView(accessStatus);
+        addGap(permissions, 10);
+        permissions.addView(label("۱) اگر در بخش Accessibility برنامه پیدا نمی‌شود یا گزینه خاکستری است، ابتدا «اطلاعات برنامه» را باز کن؛ از منوی سه‌نقطه بالا «Allow restricted settings» را فعال کن. این دسترسی حساس است؛ فقط در صورت اعتماد به سورس برنامه فعالش کن.", 13, MUTED, false));
+        Button info = button("۱. بازکردن اطلاعات برنامه", false);
+        permissions.addView(info);
+        info.setOnClickListener(v -> {
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(intent);
+            } catch (RuntimeException ex) {
+                accessStatus.setText("امکان باز کردن اطلاعات برنامه وجود ندارد.");
+            }
+        });
+        addGap(permissions, 7);
+        permissions.addView(label("۲) در Accessibility قسمت Installed apps، سرویس Hotspot Guardian را پیدا و فعال کن. بعد به برنامه برگرد.", 13, MUTED, false));
+        Button access = button("۲. بازکردن Accessibility", false);
+        permissions.addView(access);
+        access.setOnClickListener(v -> {
+            try { startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)); }
+            catch (RuntimeException ex) {
+                accessStatus.setText("تنظیمات Accessibility باز نشد.");
+            }
+        });
+
+        LinearLayout periodic = section(main);
+        periodic.addView(label("رفرش دوره‌ای اختیاری", 19, INK, true));
+        periodic.addView(label("این قابلیت خرابی شبکه را تشخیص نمی‌دهد؛ در زمان انتخابی، حتی اگر هات‌اسپات سالم باشد، تلاش به خاموش/روشن‌کردنش می‌کند و اتصال لپ‌تاپ قطع می‌شود. فقط در صورت نیاز روشن کن.", 13, MUTED, false));
+        addGap(periodic, 10);
+        frequency = new RadioGroup(this);
+        frequency.setOrientation(RadioGroup.HORIZONTAL);
+        RadioButton r30 = radio("۳۰ دقیقه", 30);
+        RadioButton r60 = radio("۶۰ دقیقه", 60);
+        RadioButton r120 = radio("۱۲۰ دقیقه", 120);
+        frequency.addView(r30); frequency.addView(r60); frequency.addView(r120);
+        frequency.check(60);
+        periodic.addView(frequency);
+        arm = button("فعال‌کردن رفرش دوره‌ای", true);
+        periodic.addView(arm);
+        arm.setOnClickListener(v -> startSchedule());
+        addGap(periodic, 8);
+        stop = button("توقف کامل رفرش دوره‌ای", false);
+        periodic.addView(stop);
+        stop.setOnClickListener(v -> {
+            stopService(new Intent(this, MonitorService.class));
+            scheduleStatus.setText("رفرش دوره‌ای خاموش شد.");
+            handler.postDelayed(this::updateScreen, 150);
+        });
+        scheduleStatus = label("", 13, MUTED, false);
+        periodic.addView(scheduleStatus);
+
+        LinearLayout footer = section(main);
+        footer.addView(label("محدودیت واقعی اندروید", 16, INK, true));
+        footer.addView(label("هنگام قفل امن صفحه، این اپ قفل را دور نمی‌زند؛ رفرش تا بازکردن معمول قفل عقب می‌افتد. رفع خرابی فریم‌ور Wi‑Fi و جلوگیری قطعی از ناپدیدشدن SSID تضمین‌پذیر نیست. بدون ذخیره لاگ، بدون حذف داده و بدون ارسال اطلاعات به اینترنت.", 13, MUTED, false));
+        setContentView(scroll);
+        updateScreen();
     }
 
-    private void launchMonitor() {
+    private RadioButton radio(String text, int value) {
+        RadioButton b = new RadioButton(this);
+        b.setText(text);
+        b.setId(value);
+        b.setTextSize(12);
+        b.setTextColor(INK);
+        b.setPadding(0, 0, dp(5), 0);
+        return b;
+    }
+
+    private void startSchedule() {
+        if (!RecoveryAccessibilityService.isReady()) {
+            scheduleStatus.setText("اول دسترسی بازیابی را فعال کن.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 88);
+            return;
+        }
+        Intent action = new Intent(this, MonitorService.class).setAction(MonitorService.ACTION_START);
+        action.putExtra(MonitorService.EXTRA_MINUTES, frequency.getCheckedRadioButtonId());
         try {
-            startForegroundService(new Intent(this, MonitorService.class));
-        } catch (RuntimeException ignored) {
-            state.setText("اندروید اجازه شروع سرویس را نداد.");
+            startForegroundService(action);
+            handler.postDelayed(this::updateScreen, 350);
+        } catch (RuntimeException ex) {
+            scheduleStatus.setText("اندروید اجرای برنامه دوره‌ای را نپذیرفت.");
         }
-        refresh();
     }
 
-    private void refresh() {
-        if (state == null) return;
-        state.setText(MonitorService.status);
-        String url = MonitorService.currentUrl;
-        address.setText(url.isEmpty() ? "" : "نشانی لپ‌تاپ:\n" + url);
-        start.setEnabled(!MonitorService.isRunning);
-        stop.setEnabled(MonitorService.isRunning);
+    @Override public void onRequestPermissionsResult(int requestCode,
+            String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == 88) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
+                startSchedule();
+            else scheduleStatus.setText("برای زمان‌بندی همراه اعلان، مجوز اعلان لازم است.");
+        }
+    }
+
+    private void updateScreen() {
+        if (accessStatus == null) return;
+        boolean enabled = RecoveryAccessibilityService.isReady();
+        accessStatus.setText(enabled
+                ? "● دسترسی بازیابی فعال است."
+                : "● دسترسی بازیابی هنوز فعال نیست.");
+        accessStatus.setTextColor(enabled ? Color.rgb(24, 119, 79) : ERROR);
+        if (!MonitorService.running) {
+            scheduleStatus.setText("خاموش · هیچ پایش مداوم یا اتصال لپ‌تاپ وجود ندارد.");
+            arm.setEnabled(enabled);
+            stop.setEnabled(false);
+        } else {
+            scheduleStatus.setText(MonitorService.status +
+                    (MonitorService.awaitingUnlock ? " منتظر بازکردن قفل." : ""));
+            arm.setEnabled(enabled);
+            stop.setEnabled(true);
+        }
+        if (!RecoveryAccessibilityService.isBusy())
+            primary.setEnabled(enabled);
     }
 
     @Override protected void onResume() {
         super.onResume();
-        handler.removeCallbacks(updater);
-        handler.post(updater);
+        handler.removeCallbacks(refresher);
+        handler.post(refresher);
     }
     @Override protected void onPause() {
-        handler.removeCallbacks(updater);
+        handler.removeCallbacks(refresher);
         super.onPause();
     }
 }
