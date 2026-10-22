@@ -3,6 +3,8 @@ package com.example.hotspotguardian;
 import android.accessibilityservice.AccessibilityService;
 import android.app.KeyguardManager;
 import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
@@ -13,47 +15,53 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Explicitly opted-in local UI recovery. No gestures, screenshots, network
- * writes or arbitrary UI actions. Only clicks on a positively identified
- * Mobile Hotspot Quick Settings tile with a readable ON/OFF state.
+ * Only actuates a verified Mobile Hotspot Quick Settings tile after
+ * an explicit app UI action or consented periodic schedule.
+ *
+ * Does not log events, scrape other applications, use shell or bypass Keyguard.
  */
 public final class RecoveryAccessibilityService extends AccessibilityService {
     private static volatile RecoveryAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final AtomicBoolean claimed = new AtomicBoolean();
     private volatile boolean busy;
-    private final AtomicBoolean requestClaimed = new AtomicBoolean(false);
-    private int stage;
-    private int probes;
-    private static final int BEGIN = 0, AFTER_OFF = 1, AFTER_ON = 2;
+    private boolean scheduled;
+    private int stage, probes, reopenCount;
+    private static final int INITIAL = 0, WAIT_OFF = 1, WAIT_ON = 2;
+    private static final int MAX_PROBES = 12;
 
     public static boolean isReady() { return instance != null; }
-
-    /**
-     * Do not bypass Keyguard. A locked/background request remains eligible
-     * in MonitorService RAM and is retried after normal user unlock.
-     */
-    public static boolean canRecoverNow() {
+    public static boolean isBusy() {
         RecoveryAccessibilityService s = instance;
-        return s != null && MonitorService.isRunning && !s.busy &&
-                !s.requestClaimed.get() && s.isUnlockedAndInteractive();
+        return s != null && (s.busy || s.claimed.get());
     }
 
-    public static boolean request() {
+    private boolean unlocked() {
+        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return km != null && pm != null && !km.isKeyguardLocked() && pm.isInteractive();
+    }
+
+    public static boolean canRecoverNow() {
         RecoveryAccessibilityService s = instance;
-        if (s == null || !canRecoverNow() ||
-                !s.requestClaimed.compareAndSet(false, true)) return false;
-        if (!s.handler.post(s::beginRecovery)) {
-            s.requestClaimed.set(false);
+        return s != null && !isBusy() && s.unlocked();
+    }
+
+    public static boolean request(boolean isScheduled) {
+        RecoveryAccessibilityService s = instance;
+        if (s == null || !s.unlocked() || !s.claimed.compareAndSet(false, true))
+            return false;
+        if (!s.handler.post(() -> s.begin(isScheduled))) {
+            s.claimed.set(false);
             return false;
         }
         return true;
     }
 
-    private boolean isUnlockedAndInteractive() {
-        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        return km != null && pm != null &&
-                !km.isKeyguardLocked() && pm.isInteractive();
+    public static void requestStopMaintenance() {
+        RecoveryAccessibilityService s = instance;
+        if (s != null) s.handler.post(() ->
+                s.stopService(new Intent(s, MonitorService.class)));
     }
 
     @Override protected void onServiceConnected() {
@@ -62,168 +70,177 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Deliberately no event recording or content collection.
+        // NO UI events or user contents are collected/stored.
     }
 
-    @Override public void onInterrupt() { abort("بازیابی توسط اندروید متوقف شد."); }
+    @Override public void onInterrupt() {
+        if (busy) fail("بازیابی توسط سیستم قطع شد.");
+    }
 
     @Override public void onDestroy() {
-        abort("سرویس دسترسی خاموش شد.");
+        if (busy) fail("سرویس دسترسی در میانه بازیابی متوقف شد.");
+        claimed.set(false);
+        busy = false;
         instance = null;
         super.onDestroy();
     }
 
-    private void beginRecovery() {
-        if (busy || !MonitorService.isRunning || !isUnlockedAndInteractive()) {
-            requestClaimed.set(false);
-            MonitorService.status = "بازیابی در RAM منتظر باز شدن قفل می‌ماند؛ قفل دور زده نمی‌شود.";
+    private void begin(boolean fromSchedule) {
+        if (busy || !unlocked()) {
+            claimed.set(false);
+            MonitorService.recoveryResult(false, "گوشی قفل شد؛ بدون لمس متوقف شد.", fromSchedule);
             return;
         }
+        scheduled = fromSchedule;
         busy = true;
-        stage = BEGIN;
+        stage = INITIAL;
         probes = 0;
-        MonitorService.status = "تلاش امن برای بازنشانی هات‌اسپات از پنل سامسونگ…";
-        showAndProbe();
+        reopenCount = 0;
+        MonitorService.status = "پنل سریع برای بازیابی بررسی می‌شود…";
+        openPanel();
     }
 
-    private void showAndProbe() {
-        if (!busy || !MonitorService.isRunning || !isUnlockedAndInteractive()) {
-            abort("پنل قابل کنترل نیست؛ دستگاه باید باز و روشن باشد."); return;
+    private void openPanel() {
+        if (!busy || !unlocked()) {
+            fail("قفل/نمایشگر اجازه ادامه بازیابی نداد."); return;
         }
         if (!performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)) {
-            abort("بازکردن پنل سریع توسط سامسونگ مجاز نشد.");
-            return;
+            fail("اندروید اجازه بازکردن Quick Settings را نداد."); return;
         }
-        handler.postDelayed(this::probe, 900);
+        handler.postDelayed(this::probe, 850);
     }
 
     private void probe() {
         if (!busy) return;
-        if (!MonitorService.isRunning || !isUnlockedAndInteractive()) {
-            abort(stage == AFTER_OFF
-                ? "هشدار: احتمال دارد هات‌اسپات خاموش مانده باشد؛ پس از بازکردن قفل وضعیتش را بررسی کن."
-                : "گوشی قفل/خاموش شد؛ ادامه لمس متوقف شد.");
+        if (!unlocked()) {
+            fail("بازیابی به‌علت قفل‌شدن قطع شد؛ ممکن است هات‌اسپات خاموش مانده باشد.");
             return;
         }
-        if (++probes > 9) {
-            abort("کلید یا وضعیت هات‌اسپات قابل تشخیص نیست؛ بدون لمس حدسی متوقف شد.");
+        if (++probes > MAX_PROBES) {
+            fail(stage == WAIT_OFF
+                ? "هات‌اسپات خاموش شد اما وضعیت OFF تأیید نشد؛ وضعیت را دستی بررسی کن."
+                : "کلید هات‌اسپات یا وضعیتش قابل‌شناسایی نبود؛ هیچ لمس حدسی انجام نشد.");
             return;
         }
         AccessibilityNodeInfo root = getRootInActiveWindow();
         if (root == null || root.getPackageName() == null ||
-                !root.getPackageName().toString().equals("com.android.systemui")) {
-            handler.postDelayed(this::probe, 550);
+                !"com.android.systemui".contentEquals(root.getPackageName())) {
+            if (reopenCount < 2 && probes % 4 == 0) {
+                reopenCount++;
+                openPanel();
+            } else retry();
             return;
         }
-        Match match = findTile(root);
-        if (match == null || match.state == -1 || match.actionNode == null) {
-            handler.postDelayed(this::probe, 550);
+        Tile tile = findHotspotTile(root);
+        if (tile == null) {
+            retry();
             return;
         }
-
-        if (stage == BEGIN) {
-            if (match.state == 1) {
-                if (!match.actionNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    abort("نتوانستم کلید هات‌اسپات را لمس کنم."); return;
-                }
-                stage = AFTER_OFF;
-                probes = 0;
-                handler.postDelayed(this::showAndProbe, 2100);
-            } else {
-                if (!match.actionNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                    abort("نتوانستم هات‌اسپات را روشن کنم."); return;
-                }
-                stage = AFTER_ON;
-                probes = 0;
-                handler.postDelayed(this::showAndProbe, 2100);
+        if (stage == INITIAL) {
+            if (tile.state == 1) {
+                if (!tile.click()) { fail("سامسونگ لمس کلید روشن را رد کرد."); return; }
+                stage = WAIT_OFF;
+                probes = 0; reopenCount = 0;
+                handler.postDelayed(this::openPanel, 1850);
+            } else if (tile.state == 0) {
+                // Already OFF: do not turn it off again.
+                if (!tile.click()) { fail("سامسونگ روشن‌کردن هات‌اسپات را رد کرد."); return; }
+                stage = WAIT_ON;
+                probes = 0; reopenCount = 0;
+                handler.postDelayed(this::openPanel, 1850);
             }
             return;
         }
-        if (stage == AFTER_OFF) {
-            if (match.state != 0) {
-                // Never click again unless the UI confirms OFF.
-                handler.postDelayed(this::probe, 600);
-                return;
-            }
-            if (!match.actionNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                abort("هات‌اسپات خاموش شد اما روشن‌کردن خودکار ناموفق بود.");
-                return;
-            }
-            stage = AFTER_ON;
-            probes = 0;
-            handler.postDelayed(this::showAndProbe, 2100);
+        if (stage == WAIT_OFF) {
+            if (tile.state != 0) { retry(); return; }
+            if (!tile.click()) { fail("هات‌اسپات خاموش شد اما روشن‌کردن رد شد."); return; }
+            stage = WAIT_ON;
+            probes = 0; reopenCount = 0;
+            handler.postDelayed(this::openPanel, 1850);
             return;
         }
-        if (stage == AFTER_ON) {
-            if (match.state != 1) {
-                handler.postDelayed(this::probe, 550);
-                return;
-            }
-            busy = false;
-            requestClaimed.set(false);
-            MonitorService.status = "کلید هات‌اسپات طبق پنل سامسونگ روشن است؛ اتصال لپ‌تاپ را بررسی کن.";
-            performGlobalAction(GLOBAL_ACTION_BACK);
+        if (stage == WAIT_ON) {
+            if (tile.state != 1) { retry(); return; }
+            succeed();
         }
     }
 
-    private static class Match {
-        AccessibilityNodeInfo actionNode;
-        int state = -1; // -1 unknown, 0 off, 1 on
+    private void retry() { handler.postDelayed(this::probe, 400); }
+
+    private void succeed() {
+        busy = false;
+        claimed.set(false);
+        MonitorService.recoveryResult(true,
+                "کلید Mobile Hotspot به وضعیت روشن برگشت. حالا اتصال دستگاه‌ها را بررسی کن.",
+                scheduled);
+        performGlobalAction(GLOBAL_ACTION_BACK);
     }
 
-    private Match findTile(AccessibilityNodeInfo root) {
-        ArrayDeque<AccessibilityNodeInfo> q = new ArrayDeque<>();
-        q.add(root);
+    private void fail(String reason) {
+        busy = false;
+        claimed.set(false);
+        MonitorService.recoveryResult(false, "رفرش ناموفق: " + reason, scheduled);
+    }
+
+    private static final class Tile {
+        final AccessibilityNodeInfo clickable;
+        final int state;
+        Tile(AccessibilityNodeInfo node, int state) {
+            clickable = node;
+            this.state = state;
+        }
+        boolean click() { return clickable.performAction(AccessibilityNodeInfo.ACTION_CLICK); }
+    }
+
+    private Tile findHotspotTile(AccessibilityNodeInfo root) {
+        ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>();
+        queue.add(root);
         int explored = 0;
-        while (!q.isEmpty() && explored++ < 350) {
-            AccessibilityNodeInfo node = q.remove();
-            if (isHotspotLabel(node)) {
-                AccessibilityNodeInfo p = node;
-                for (int levels=0; levels<5 && p!=null; levels++,p=p.getParent()) {
-                    int state = readState(p);
-                    if (p.isClickable() && state != -1) {
-                        Match result = new Match();
-                        result.actionNode = p;
-                        result.state = state;
-                        return result;
+        while (!queue.isEmpty() && explored++ < 320) {
+            AccessibilityNodeInfo n = queue.remove();
+            if (hotspotLabel(n)) {
+                AccessibilityNodeInfo parent = n;
+                int state = safeState(n);
+                for (int levels = 0; parent != null && levels < 4; levels++) {
+                    if (parent.isClickable()) {
+                        int candidateState = state != -1 ? state : safeState(parent);
+                        if (candidateState != -1)
+                            return new Tile(parent, candidateState);
                     }
+                    parent = parent.getParent();
                 }
             }
-            for (int i=0; i<node.getChildCount() && i<50; i++) {
-                AccessibilityNodeInfo child = node.getChild(i);
-                if (child != null) q.add(child);
+            for (int i=0; i<n.getChildCount() && i<40; i++) {
+                AccessibilityNodeInfo child = n.getChild(i);
+                if (child != null) queue.add(child);
             }
         }
         return null;
     }
 
-    private boolean isHotspotLabel(AccessibilityNodeInfo n) {
-        String txt = n.getText() == null ? "" : n.getText().toString();
-        String desc = n.getContentDescription() == null ? "" : n.getContentDescription().toString();
-        String combined = (txt + " " + desc).toLowerCase(Locale.ROOT)
-            .replace('‌', ' ').replace("  ", " ");
-        return combined.contains("mobile hotspot") || combined.contains("wi-fi hotspot")
-            || combined.contains("نقطه اتصال همراه")
-            || combined.contains("نقطه اتصال تلفن همراه")
-            || combined.contains("هات اسپات");
+    private static boolean hotspotLabel(AccessibilityNodeInfo node) {
+        String desc = node.getContentDescription() == null ? "" :
+                node.getContentDescription().toString();
+        String text = node.getText() == null ? "" : node.getText().toString();
+        String s = (desc + " " + text).toLowerCase(Locale.ROOT)
+                .replace('‌', ' ');
+        return s.contains("mobile hotspot") || s.contains("wi-fi hotspot")
+                || s.contains("mobile hot spot")
+                || s.contains("نقطه اتصال همراه")
+                || s.contains("نقطه اتصال تلفن همراه")
+                || s.contains("هات اسپات") || s.contains("هات‌اسپات");
     }
 
-    private static int readState(AccessibilityNodeInfo node) {
-        // Prefer accessibility checkable state (not unrelated enable/disable).
-        if (node.isCheckable()) return node.isChecked() ? 1 : 0;
-        CharSequence state = android.os.Build.VERSION.SDK_INT >= 30 ? node.getStateDescription() : null;
-        String info = state == null ? "" : state.toString().toLowerCase(Locale.ROOT);
-        if (info.isEmpty() && node.getContentDescription() != null)
-            info = node.getContentDescription().toString().toLowerCase(Locale.ROOT);
-        if (info.matches("(?s).*(?:\\boff\\b|خاموش|غیرفعال).*$")) return 0;
-        if (info.matches("(?s).*(?:\\bon\\b|روشن|فعال).*$")) return 1;
+    private static int safeState(AccessibilityNodeInfo n) {
+        if (n.isCheckable()) return n.isChecked() ? 1 : 0;
+        String desc = n.getContentDescription() == null ? "" :
+                n.getContentDescription().toString();
+        String state = Build.VERSION.SDK_INT >= 30 && n.getStateDescription() != null
+                ? n.getStateDescription().toString() : "";
+        String value = (state + " " + desc).toLowerCase(Locale.ROOT)
+                .replace(',', ' ').replace('،', ' ');
+        if (value.matches("(?s).*(?:\\boff\\b|خاموش|غیرفعال).*")) return 0;
+        if (value.matches("(?s).*(?:\\bon\\b|روشن|فعال).*")) return 1;
         return -1;
-    }
-
-    private void abort(String reason) {
-        if (!busy && !requestClaimed.get()) return;
-        busy = false;
-        requestClaimed.set(false);
-        MonitorService.status = reason;
     }
 }
