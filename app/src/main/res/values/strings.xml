@@ -1,3 +1,5 @@
 <resources>
+    <string name="accessibility_service_label">Hotspot Guardian Recovery</string>
+    <string name="accessibility_service_summary">Only user-approved recovery from Samsung Quick Settings; does not read or store messages.</string>
     <string name="accessibility_description">Optional Samsung Mobile Hotspot recovery. After explicit activation, checks only the Quick Settings hotspot tile while the screen is unlocked, then clicks OFF/ON. Screen events are not saved, transmitted or recorded. No laptop companion is needed.</string>
 </resources>
