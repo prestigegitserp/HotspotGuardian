@@ -5,7 +5,7 @@ import java.util.Map;
 /** RAM-only bounded heartbeat bookkeeping; never reads, writes or deletes files. */
 public final class HeartbeatRegistry {
     private static final int MAX_CLIENTS = 4;
-    public static final long TIMEOUT_MS = 90000L;
+    public static final long TIMEOUT_MS = 18000L;
     private final Map<String, Client> clients = new HashMap<>();
     private int everSeen;
 
