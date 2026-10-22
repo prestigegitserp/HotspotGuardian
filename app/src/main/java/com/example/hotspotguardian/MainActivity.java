@@ -260,8 +260,12 @@ public final class MainActivity extends Activity {
             arm.setEnabled(enabled);
             stop.setEnabled(true);
         }
-        if (!RecoveryAccessibilityService.isBusy())
-            primary.setEnabled(enabled);
+        boolean busy = RecoveryAccessibilityService.isBusy();
+        primary.setEnabled(enabled && !busy);
+        if (!busy && MonitorService.status.startsWith("کلید Mobile Hotspot"))
+            summary.setText(MonitorService.status);
+        if (!busy && MonitorService.status.startsWith("رفرش ناموفق"))
+            summary.setText(MonitorService.status);
     }
 
     @Override protected void onResume() {
