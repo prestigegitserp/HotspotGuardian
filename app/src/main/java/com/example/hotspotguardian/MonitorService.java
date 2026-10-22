@@ -175,7 +175,7 @@ public final class MonitorService extends Service {
             PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
             boolean lockedOrAsleep = keyguard == null || keyguard.isKeyguardLocked()
                     || power == null || !power.isInteractive();
-            if (lockedOrAsleep) {
+            if (lockedOrAsleep && recoveryPolicy.attempts() < RecoveryPolicy.MAX_ATTEMPTS) {
                 if (!deferredRecovery) {
                     getSystemService(NotificationManager.class).notify(ALERT_ID,
                             makeNotification(CHANNEL_ALERTS, "قطع ارتباط؛ بازیابی منتظر بازشدن قفل",
@@ -183,7 +183,7 @@ public final class MonitorService extends Service {
                 }
                 deferredRecovery = true;
                 status = "پایش فعال است؛ بازیابی در RAM منتظر بازکردن قفل گوشی است.";
-            } else {
+            } else if (!lockedOrAsleep) {
                 if (recoveryPolicy.attempt(now, true, true, true,
                         RecoveryAccessibilityService.canRecoverNow(),
                         RecoveryAccessibilityService::request)) {
@@ -191,6 +191,9 @@ public final class MonitorService extends Service {
                     status = "بازیابی پذیرفته شد؛ تلاش " + recoveryPolicy.attempts()
                             + " از ۳. نتیجه اتصال را بررسی کن.";
                 }
+            } else {
+                deferredRecovery = false;
+                status = "سقف ۳ تلاش این قطعی تمام شد؛ پایش هنوز فعال است.";
             }
         } else {
             deferredRecovery = false;
