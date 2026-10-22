@@ -8,3 +8,5 @@ javac -d "$TMP" app/src/main/java/com/example/hotspotguardian/HeartbeatRegistry.
 java -ea -cp "$TMP" com.example.hotspotguardian.HeartbeatRegistryTest
 javac -d "$TMP" app/src/main/java/com/example/hotspotguardian/RecoveryPolicy.java tests/RecoveryPolicyTest.java
 java -ea -cp "$TMP" com.example.hotspotguardian.RecoveryPolicyTest
+javac -d "$TMP" app/src/main/java/com/example/hotspotguardian/LockScreenRecoveryGate.java tests/LockScreenRecoveryGateTest.java
+java -ea -cp "$TMP" com.example.hotspotguardian.LockScreenRecoveryGateTest
