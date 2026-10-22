@@ -1,20 +1,30 @@
-# Hotspot Guardian Recovery v2.1 — Galaxy A35
+# Hotspot Guardian Recovery v2.2 — Galaxy A35
 
-**Downloadable and installable APK:** open [GitHub Actions](https://github.com/prestigegitserp/HotspotGuardian/actions/workflows/build-apk.yml), open the latest successful Build, download `HotspotGuardianRecovery-v2.1-APK` from **Artifacts**, extract and install `app-debug.apk`.
+**APK:** Go to [the latest successful GitHub Actions build](https://github.com/prestigegitserp/HotspotGuardian/actions/workflows/build-apk.yml) and download `HotspotGuardianRecovery-v2.2-APK` from **Artifacts**. Unzip and install `app-debug.apk`.
 
-## Two actual interventions, both optional
+## Screen locked: what really works
 
-1. **CPU Guard**: user-enabled partial WakeLock while monitoring. Can reduce CPU sleep related interruptions; cannot guarantee SoftAP reliability and uses more battery.
-2. **Recovery via Accessibility**: when the phone is **unlocked** and Samsung Quick Settings exposes a Mobile Hotspot tile with readable on/off state, the app attempts a safe off/on sequence. A manual "Recover now" button is included. Auto-recovery must be explicitly enabled; it triggers only after all previously observed laptop heartbeats have been lost for >18s, with a 45-second cooldown and up to 3 attempts per continuous outage, then re-armed by a real laptop reconnect. The temporary disconnection is intentional. Browser sleep can produce false positives, so leave auto-recovery disabled unless you accept that risk.
+**Monitoring and optional wake locks can continue while the screen is locked.** Toggle CPU Guard and/or the experimental Wi-Fi Guard before locking. Both can increase battery consumption; neither guarantees that Samsung's SoftAP will stay discoverable, and Wi-Fi locks may not affect the hotspot radio.
 
-**Heartbeats every 3 seconds; checks every 2 seconds while the user-started service can run.** No guarantees during Android Doze or radio firmware failures.
+**Direct off/on recovery while the phone is securely locked is NOT supported by ordinary Android app privileges.** Android's tethering control is privileged; this app does not bypass the Keyguard. If the monitored laptop heartbeat disappears for >18 seconds while locked, it keeps a pending recovery in RAM and sends an alert. The 2-second monitoring loop checks for a **normal user unlock**, and if connectivity remains absent, it attempts the verified Quick Settings recovery. This requires optional Accessibility service and explicit Auto Recovery opt-in.
 
-**No root, ADB, system shell, file deletion, app-created persistent logs, settings writes, screenshots, data harvesting, or cloud services.** The Android **Accessibility permission is sensitive** and not required for monitoring or CPU Guard. The service only examines the Quick Settings tile during recovery, cannot unlock a locked device, and stops without clicking if the tile/state cannot be verified.
+## Runtime and protections
 
-Android does not grant ordinary third-party apps direct, reliable control over Samsung's Wi-Fi tethering state; this workaround is not guaranteed. Do not assume the radio is repaired merely because Quick Settings shows ON. No physical Galaxy A35 test has been performed.
+- Laptop local-only ping: every 3 seconds; monitor checks every 2 seconds (Android may suspend operations in Doze).
+- Offline threshold: 18 seconds; recovery attempts at most three times per continuous outage, minimum 45 seconds apart.
+- One recovery request at a time, de-duplicated. Denied commands (such as attempts while locked) **do not count** toward three-attempt limit.
+- Before **every** Accessibility tile interaction: check user is unlocked and screen is interactive. Never unlock, display over Keyguard, capture screen, or perform guessed taps.
+- CPU and Wi-Fi locks are released when monitoring stops. Opt-ins are volatile in RAM. No file/database/log writer, data wipe, shell, cloud, root or hidden APIs.
+- Android and the laptop's browser may create independent routine system data/caches and their behavior is outside this app's control.
 
-**راهنمای کامل فارسی:** [docs/RECOVERY_V2_FA.md](docs/RECOVERY_V2_FA.md) · [Source security checks](tests/check_security.py) · [Legacy v1 guide](README_FA.md)
+## Set up
 
-CI builds with Android SDK 35, JDK 17, Gradle 8.11.1 and AGP 8.9.2, running security, timeout/cooldown unit tests, APK build, and Android lint.
+1. Turn on the Samsung A35 hotspot and connect your laptop.
+2. Open the app and select CPU Guard; optional Wi-Fi Guard is experimental and can be disabled if it makes no difference.
+3. Start monitoring, then open the IP:8765 page shown by the app on the laptop and keep that page visible/active.
+4. If automatic recovery after **normal unlock** is desired, turn on Accessibility service for the app and explicitly enable Auto Recovery. It remains OFF by default.
+5. Use the notification Stop action to release held CPU/Wi-Fi locks at any time.
 
-**Updating v1:** GitHub debug signing keys are ephemeral; Android may require uninstalling the older debug-signed APK before installing this debug build. This app itself does not delete any data. Android/Chrome OS internals can still create their own routine caches and system records.
+**This is not a validated fix for a dead/hung SoftAP, and has not been physically tested on a Galaxy A35.** Android Lint and automated tests only validate code correctness/security checks, not hardware repair. If a lock starts mid-toggle, OS security restrictions can prevent completion; verify the hotspot afterward.
+
+**راهنمای فارسی:** [docs/RECOVERY_V2_FA.md](docs/RECOVERY_V2_FA.md)
