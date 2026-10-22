@@ -1,6 +1,10 @@
 package com.example.hotspotguardian;
 
 import android.Manifest;
+import android.accessibilityservice.AccessibilityServiceInfo;
+import android.view.accessibility.AccessibilityManager;
+import android.content.pm.ResolveInfo;
+import java.util.List;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -29,7 +33,7 @@ public final class MainActivity extends Activity {
     private static final int MUTED = Color.rgb(91, 108, 128);
     private static final int ERROR = Color.rgb(173, 48, 48);
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private TextView accessStatus, summary, scheduleStatus;
+    private TextView accessStatus, registrationStatus, summary, scheduleStatus;
     private Button primary, arm, stop;
     private RadioGroup frequency;
     private final Runnable refresher = new Runnable() {
@@ -101,7 +105,7 @@ public final class MainActivity extends Activity {
         main.setPadding(dp(16), dp(24), dp(16), dp(20));
         scroll.addView(main);
         main.addView(label("Hotspot Guardian", 28, INK, true));
-        main.addView(label("نسخه ۳ · بازیابی یک‌طرفه از خود گوشی", 15, MUTED, false));
+        main.addView(label("نسخه ۳.۱ · بازیابی یک‌طرفه از خود گوشی", 15, MUTED, false));
         addGap(main, 16);
 
         LinearLayout recovery = section(main);
@@ -145,6 +149,13 @@ public final class MainActivity extends Activity {
         addGap(permissions, 7);
         accessStatus = label("", 15, MUTED, true);
         permissions.addView(accessStatus);
+        addGap(permissions, 7);
+        registrationStatus = label("در حال بررسی ثبت سرویس توسط اندروید…", 13, MUTED, false);
+        permissions.addView(registrationStatus);
+        addGap(permissions, 7);
+        Button diagnose = button("بررسی شناسایی سرویس توسط خود اندروید", false);
+        diagnose.setOnClickListener(v -> diagnoseService());
+        permissions.addView(diagnose);
         addGap(permissions, 10);
         permissions.addView(label("۱) اگر در بخش Accessibility برنامه پیدا نمی‌شود یا گزینه خاکستری است، ابتدا «اطلاعات برنامه» را باز کن؛ از منوی سه‌نقطه بالا «Allow restricted settings» را فعال کن. این دسترسی حساس است؛ فقط در صورت اعتماد به سورس برنامه فعالش کن.", 13, MUTED, false));
         Button info = button("۱. بازکردن اطلاعات برنامه", false);
@@ -247,6 +258,49 @@ public final class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Uses Android's registered accessibility-service list, not a guessed
+     * Settings UI path. No privileges, ADB, logs or persistent storage.
+     */
+    private void diagnoseService() {
+        if (registrationStatus == null) return;
+        try {
+            AccessibilityManager manager =
+                    (AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
+            List<AccessibilityServiceInfo> installed =
+                    manager == null ? null : manager.getInstalledAccessibilityServiceList();
+            if (installed == null) {
+                registrationStatus.setText("اندروید فهرست سرویس‌ها را در اختیار برنامه قرار نداد.");
+                return;
+            }
+            boolean registered = false;
+            for (AccessibilityServiceInfo info : installed) {
+                if (info == null) continue;
+                ResolveInfo resolve = info.getResolveInfo();
+                if (resolve == null || resolve.serviceInfo == null) continue;
+                if (getPackageName().equals(resolve.serviceInfo.packageName)
+                    && resolve.serviceInfo.name != null
+                    && resolve.serviceInfo.name.endsWith("RecoveryAccessibilityService")) {
+                    registered = true;
+                    break;
+                }
+            }
+            if (registered) {
+                registrationStatus.setText(RecoveryAccessibilityService.isReady()
+                    ? "✓ سرویس شناسایی و فعال شده است."
+                    : "✓ اندروید سرویس را شناسایی کرده، ولی هنوز فعال نیست. منوی Allow restricted settings و Installed apps را بررسی کن.");
+                registrationStatus.setTextColor(RecoveryAccessibilityService.isReady()
+                    ? Color.rgb(24,119,79) : MUTED);
+            } else {
+                registrationStatus.setText("✕ اندروید سرویس بازیابی این نصب را در فهرست خود نشان نمی‌دهد. اگر پس از فعال‌کردن Restricted settings و یک Restart تغییری نکرد، نصب APK جدید را بررسی کن.");
+                registrationStatus.setTextColor(ERROR);
+            }
+        } catch (RuntimeException ex) {
+            registrationStatus.setText("پرس‌وجوی ثبت سرویس توسط اندروید امکان‌پذیر نبود.");
+            registrationStatus.setTextColor(ERROR);
+        }
+    }
+
     private void updateScreen() {
         if (accessStatus == null) return;
         boolean enabled = RecoveryAccessibilityService.isReady();
@@ -276,6 +330,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         handler.removeCallbacks(refresher);
         handler.post(refresher);
+        diagnoseService();
     }
     @Override protected void onPause() {
         handler.removeCallbacks(refresher);
