@@ -10,6 +10,7 @@ import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.util.ArrayDeque;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Explicitly opted-in local UI recovery. No gestures, screenshots, network
@@ -19,18 +20,40 @@ import java.util.Locale;
 public final class RecoveryAccessibilityService extends AccessibilityService {
     private static volatile RecoveryAccessibilityService instance;
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private boolean busy;
+    private volatile boolean busy;
+    private final AtomicBoolean requestClaimed = new AtomicBoolean(false);
     private int stage;
     private int probes;
     private static final int BEGIN = 0, AFTER_OFF = 1, AFTER_ON = 2;
 
     public static boolean isReady() { return instance != null; }
 
+    /**
+     * Do not bypass Keyguard. A locked/background request remains eligible
+     * in MonitorService RAM and is retried after normal user unlock.
+     */
+    public static boolean canRecoverNow() {
+        RecoveryAccessibilityService s = instance;
+        return s != null && MonitorService.isRunning && !s.busy &&
+                !s.requestClaimed.get() && s.isUnlockedAndInteractive();
+    }
+
     public static boolean request() {
         RecoveryAccessibilityService s = instance;
-        if (s == null) return false;
-        s.handler.post(s::beginRecovery);
+        if (s == null || !canRecoverNow() ||
+                !s.requestClaimed.compareAndSet(false, true)) return false;
+        if (!s.handler.post(s::beginRecovery)) {
+            s.requestClaimed.set(false);
+            return false;
+        }
         return true;
+    }
+
+    private boolean isUnlockedAndInteractive() {
+        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        return km != null && pm != null &&
+                !km.isKeyguardLocked() && pm.isInteractive();
     }
 
     @Override protected void onServiceConnected() {
@@ -51,11 +74,9 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
     }
 
     private void beginRecovery() {
-        if (busy || !MonitorService.isRunning) return;
-        KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (km.isKeyguardLocked() || !pm.isInteractive()) {
-            MonitorService.status = "برای بازیابی خودکار باید صفحه گوشی روشن و باز باشد.";
+        if (busy || !MonitorService.isRunning || !isUnlockedAndInteractive()) {
+            requestClaimed.set(false);
+            MonitorService.status = "بازیابی در RAM منتظر باز شدن قفل می‌ماند؛ قفل دور زده نمی‌شود.";
             return;
         }
         busy = true;
@@ -66,7 +87,9 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
     }
 
     private void showAndProbe() {
-        if (!busy || !MonitorService.isRunning) { abort("عملیات متوقف شد."); return; }
+        if (!busy || !MonitorService.isRunning || !isUnlockedAndInteractive()) {
+            abort("پنل قابل کنترل نیست؛ دستگاه باید باز و روشن باشد."); return;
+        }
         if (!performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)) {
             abort("بازکردن پنل سریع توسط سامسونگ مجاز نشد.");
             return;
@@ -76,7 +99,12 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
 
     private void probe() {
         if (!busy) return;
-        if (!MonitorService.isRunning) { abort("پایش متوقف شد."); return; }
+        if (!MonitorService.isRunning || !isUnlockedAndInteractive()) {
+            abort(stage == AFTER_OFF
+                ? "هشدار: احتمال دارد هات‌اسپات خاموش مانده باشد؛ پس از بازکردن قفل وضعیتش را بررسی کن."
+                : "گوشی قفل/خاموش شد؛ ادامه لمس متوقف شد.");
+            return;
+        }
         if (++probes > 9) {
             abort("کلید یا وضعیت هات‌اسپات قابل تشخیص نیست؛ بدون لمس حدسی متوقف شد.");
             return;
@@ -132,6 +160,7 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
                 return;
             }
             busy = false;
+            requestClaimed.set(false);
             MonitorService.status = "کلید هات‌اسپات طبق پنل سامسونگ روشن است؛ اتصال لپ‌تاپ را بررسی کن.";
             performGlobalAction(GLOBAL_ACTION_BACK);
         }
@@ -192,8 +221,9 @@ public final class RecoveryAccessibilityService extends AccessibilityService {
     }
 
     private void abort(String reason) {
-        if (!busy) return;
+        if (!busy && !requestClaimed.get()) return;
         busy = false;
+        requestClaimed.set(false);
         MonitorService.status = reason;
     }
 }
