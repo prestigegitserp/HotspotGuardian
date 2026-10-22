@@ -1,5 +1,7 @@
 package com.example.hotspotguardian;
 
+import java.util.function.BooleanSupplier;
+
 /**
  * RAM-only bounded retry policy. Monitoring never stops during cooldown.
  * A single lost-client episode can trigger up to 3 recovery attempts, 45s apart.
@@ -11,15 +13,24 @@ public final class RecoveryPolicy {
     private long lastAttempt = -1L;
     private int attempts;
 
-    public synchronized boolean allow(long now, boolean hasClient, boolean allLost,
-                                      boolean optedIn, boolean serviceReady) {
+    /** An unsuccessful or denied command does NOT use up a recovery attempt. */
+    public synchronized boolean attempt(long now, boolean hasClient, boolean allLost,
+                                        boolean optedIn, boolean serviceReady,
+                                        BooleanSupplier operationAccepted) {
         if (!optedIn || !hasClient || !allLost || !serviceReady
                 || attempts >= MAX_ATTEMPTS) return false;
         if (lastAttempt >= 0 && (now < lastAttempt || now - lastAttempt < COOLDOWN_MS))
             return false;
+        if (!operationAccepted.getAsBoolean()) return false;
         ++attempts;
         lastAttempt = now;
         return true;
+    }
+
+    /** Kept for deterministic JVM tests; actual service uses attempt with acceptance. */
+    public synchronized boolean allow(long now, boolean hasClient, boolean allLost,
+                                      boolean optedIn, boolean serviceReady) {
+        return attempt(now, hasClient, allLost, optedIn, serviceReady, () -> true);
     }
 
     /** Call only on an actually received laptop heartbeat, not a timer event. */
